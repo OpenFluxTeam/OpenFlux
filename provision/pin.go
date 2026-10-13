@@ -7,15 +7,15 @@ import "fmt"
 // releases the server's core and its updater come from, so choosing a
 // script chooses the node's core.
 //
-// Pinned* is this repository's own deploy/node-install.sh
-// (meepo161/OpenFlux releases); TestPinnedScriptHash keeps its hash in step
-// with the file: when the script changes, commit it, then point
-// PinnedCommit at that commit. Official* is the same script following
-// p1neappleXpress/OpenFlux releases.
+// Pinned* is this repository's own deploy/node-install.sh; TestPinnedScriptHash
+// keeps its hash in step with the file: when the script changes, commit it,
+// then point PinnedCommit at that commit. Official* is a second source the
+// wizard offers (SourceOfficial): a fork points Pinned* at its own releases
+// and keeps Official* here; in this repository both are the same script.
 const (
-	PinnedRepo   = "meepo161/OpenFlux"
-	PinnedCommit = "bbf60137a147aae3f776dcb6633cacf18066d499"
-	PinnedSHA256 = "57bd1acb505b01f2977d19d15bb48ebd813a980e528fbfed001886ca78eb7920"
+	PinnedRepo   = "p1neappleXpress/OpenFlux"
+	PinnedCommit = "630a0e552e49d6ff7fa193ae9d2e997c67917448"
+	PinnedSHA256 = "133b1c091c28f653b09bf4aad95b0a4b4d13032c42a1481f575c5573d83323d4"
 
 	OfficialRepo   = "p1neappleXpress/OpenFlux"
 	OfficialCommit = "630a0e552e49d6ff7fa193ae9d2e997c67917448"
