@@ -5,6 +5,8 @@ All notable changes to the OpenFlux core. Format loosely follows
 
 ## [Unreleased]
 
+- node-install.sh follows the node-v* releases of p1neappleXpress/OpenFlux, and the node wizard installs it for both sources (`fork` and `official`).
+
 ## [0.14.0] / node-v1.7.0 - 2026-10-16 (OpenFluxTeam/OpenFlux)
 
 node-install.sh installs **node-v1.7.0**. The team's stripe groups (p1neappleXpress, `integration/team-0.12`, the CLI release v0.12.1) join the speed work.

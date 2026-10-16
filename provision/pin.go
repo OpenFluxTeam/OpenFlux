@@ -8,18 +8,18 @@ import "fmt"
 // script chooses the node's core.
 //
 // Pinned* is this repository's own deploy/node-install.sh
-// (meepo161/OpenFlux releases); TestPinnedScriptHash keeps its hash in step
+// (p1neappleXpress/OpenFlux releases); TestPinnedScriptHash keeps its hash in step
 // with the file: when the script changes, commit it, then point
-// PinnedCommit at that commit. Official* is the same script following
-// p1neappleXpress/OpenFlux releases.
+// PinnedCommit at that commit. Official* names the same script (the source
+// the apps send), so both sources install the same core.
 const (
-	PinnedRepo   = "meepo161/OpenFlux"
-	PinnedCommit = "f52f1d31691f7426c856fbc3a5878251f27f630f"
-	PinnedSHA256 = "efefc440c9a6f8d0535b80964ce604c59987b92528bae6bfec8cd9369c96172e"
+	PinnedRepo   = "p1neappleXpress/OpenFlux"
+	PinnedCommit = "a2bf543b66cfcb6cbdf187523f6f51c9d7b42acb"
+	PinnedSHA256 = "9d9916244214ac2d6a029e6d1fa74cdd3cdf2ecfea296b3f8aed29cb71b7e566"
 
-	OfficialRepo   = "p1neappleXpress/OpenFlux"
-	OfficialCommit = "630a0e552e49d6ff7fa193ae9d2e997c67917448"
-	OfficialSHA256 = "133b1c091c28f653b09bf4aad95b0a4b4d13032c42a1481f575c5573d83323d4"
+	OfficialRepo   = PinnedRepo
+	OfficialCommit = PinnedCommit
+	OfficialSHA256 = PinnedSHA256
 )
 
 // Script sources the node wizard offers.
