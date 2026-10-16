@@ -76,7 +76,7 @@ SHA_arm="9dbf93a73a8266052e112215ece19586973d1da9db2ded68957f766e0af5d96d"
 # The repository this script and its core come from: the core is one of its
 # node-v* releases, and the updater follows them (UPDATE_CONF may override
 # that with a "repo=owner/name" line).
-RELEASE_REPO="meepo161/OpenFlux"
+RELEASE_REPO="p1neappleXpress/OpenFlux"
 GITHUB_API="https://api.github.com"
 GITHUB_RAW="https://raw.githubusercontent.com"
 GITHUB_WEB="https://github.com"
