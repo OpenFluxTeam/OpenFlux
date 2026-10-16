@@ -2,7 +2,11 @@ package avito
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"net/http"
+	"net/http/httptest"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -241,4 +245,58 @@ func TestOldRoomListKeepsOldWire(t *testing.T) {
 		}
 	}
 	t.Fatal("nothing crossed on the old wire")
+}
+
+// The supervisor restarts a carrier that fails to start every few seconds: each attempt used to leave its stripe
+// (rings of ~5 MiB and a delivery goroutine) behind, so a list with no pair of rooms filled a worker.
+func TestFailedStartsDoNotLeakStripes(t *testing.T) {
+	tr := NewAvitoTransport(transport.PackRooms([]string{"only-one"}, true), transport.DefaultConfig(), "", false)
+	t.Cleanup(func() { tr.Stop() })
+	runtime.GC()
+	before := runtime.NumGoroutine()
+	for i := 0; i < 30; i++ {
+		if err := tr.Start(); err == nil {
+			t.Fatal("a list of one room started")
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := runtime.NumGoroutine(); got > before {
+		t.Fatalf("goroutines %d -> %d after 30 failed starts", before, got)
+	}
+}
+
+// A rate limit in the middle of making rooms: a pair of rooms is a list (one lane), a single room is not.
+func TestCreateRoomListNeedsAPair(t *testing.T) {
+	for _, tc := range []struct {
+		made    int32
+		want    int
+		wantErr bool
+	}{{1, 0, true}, {2, 2, false}, {3, 3, false}} {
+		var calls atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) > tc.made {
+				http.Error(w, "slow down", http.StatusTooManyRequests)
+				return
+			}
+			w.Write([]byte(`{"room":{"id":"` + newID() + `"},"success":true}`))
+		}))
+		old := baseURL
+		baseURL = srv.URL
+		list, err := CreateRoomList(context.Background(), "")
+		baseURL = old
+		srv.Close()
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("%d rooms made: err = %v, want error: %v", tc.made, err, tc.wantErr)
+		}
+		if tc.wantErr {
+			continue
+		}
+		ids, _, uerr := transport.UnpackRooms(list)
+		if uerr != nil || len(ids) != tc.want {
+			t.Fatalf("%d rooms made: list %v (%v), want %d rooms", tc.made, ids, uerr, tc.want)
+		}
+	}
 }
