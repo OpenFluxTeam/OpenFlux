@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,6 +36,16 @@ var captcha struct {
 	// apply hands cookies to the live transport that asked for them; nil
 	// once that transport stopped or failed to start.
 	apply func(map[string]string) error
+	// remoteApply delivers cookies to the exit's transport by name; set by
+	// attachSessionCaptcha so SubmitCaptchaData can forward the node half
+	// of a {client, node} submission to the exit.
+	remoteApply func(string, map[string]string) error
+
+	// nodeParams holds the "node" half of a {client, node} setup page
+	// submission. It is set by SubmitCaptchaData and read by
+	// PendingNodeParams so the wizard can provision the node with them.
+	nodeParams     map[string]string
+	nodeParamsName string
 
 	// proxy is set when the check belongs to the exit (remoteName is its
 	// transport): the page must be opened through this HTTP proxy so it
@@ -107,6 +118,7 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 	captcha.own = false
 	captcha.name = ""
 	captcha.proxy, captcha.remoteName = "", ""
+	captcha.remoteApply = func(name string, jar map[string]string) error { return m.OfferCookies(name, jar) }
 	store := captcha.store
 	captcha.mu.Unlock()
 	if store != nil {
@@ -174,6 +186,7 @@ func PendingCaptchaProxy() string {
 func detachCaptcha() {
 	captcha.mu.Lock()
 	captcha.apply = nil
+	captcha.remoteApply = nil
 	captcha.mu.Unlock()
 }
 
@@ -256,17 +269,55 @@ func SubmitCaptchaCookies(cookieHeader string) string {
 
 // SubmitCaptchaData takes the JSON a script transport's own setup page
 // passed to window.openfluxSubmit (script.FlattenSubmission says how it is
-// read: flat or {client: {...}}, values as strings) and delivers it the same
-// way SubmitCaptchaCookies delivers real cookies: the script reads it back
-// via cookieJar.get() in its onEvent("cookiesApplied") handler (see
-// js/template.js) - ApplyCookies does not care whether the values are
-// browser cookies or a script's own config.
+// read: flat or {client: {...}, node: {...}}) and delivers the client half
+// the same way SubmitCaptchaCookies delivers real cookies. The node half
+// (if present) is stored for PendingNodeParams so the wizard can provision
+// the node with it.
 func SubmitCaptchaData(json_ string) string {
-	jar, err := script.FlattenSubmission([]byte(json_))
+	client, node, err := script.FlattenSubmissionScoped([]byte(json_))
 	if err != nil {
 		return "Страница настройки: " + err.Error()
 	}
-	return submitCaptchaJar(jar)
+	captcha.mu.Lock()
+	name := captcha.name
+	remoteApply := captcha.remoteApply
+	if node != nil {
+		captcha.nodeParams = node
+		captcha.nodeParamsName = name
+	}
+	captcha.mu.Unlock()
+	result := submitCaptchaJar(client)
+	if node != nil && remoteApply != nil {
+		go func() {
+			if err := remoteApply(name, node); err != nil {
+				appendLog(fmt.Sprintf("[ANDROID] Настройка ноды для %s: %v", name, err))
+			} else {
+				appendLog(fmt.Sprintf("[ANDROID] Настройка ноды передана на выход для %s (%d значений)", name, len(node)))
+			}
+		}()
+	}
+	return result
+}
+
+// PendingNodeParams returns the node half of the last setup page
+// submission as a JSON object {"transport":"name","params":{...}},
+// or "" if the page passed a flat object or no node key. The wizard
+// reads this during provisioning to set ChannelTransport.Params on
+// the exit node. Consuming: the value is cleared after reading.
+func PendingNodeParams() string {
+	captcha.mu.Lock()
+	defer captcha.mu.Unlock()
+	if captcha.nodeParams == nil {
+		return ""
+	}
+	out := map[string]interface{}{
+		"transport": captcha.nodeParamsName,
+		"params":    captcha.nodeParams,
+	}
+	b, _ := json.Marshal(out)
+	captcha.nodeParams = nil
+	captcha.nodeParamsName = ""
+	return string(b)
 }
 
 // submitCaptchaJar is SubmitCaptchaCookies/SubmitCaptchaData's shared tail:
