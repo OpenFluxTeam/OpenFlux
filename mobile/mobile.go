@@ -114,7 +114,7 @@ func startPacket(build func() (transport.Transport, error)) string {
 		client.mu.Lock()
 		client.running = false
 		client.mu.Unlock()
-		detachCaptcha()
+		detachPrompt()
 		setAuthProxy(nil)
 		return err.Error()
 	}
@@ -196,7 +196,7 @@ func classicTransport(transportType, documentURL, encryptionSecret, codec, maxTo
 	if err != nil {
 		return nil, err
 	}
-	attachCaptcha(transportType, documentURL, inner)
+	attachPrompt(transportType, documentURL, inner)
 	setClassicRoute(transportType)
 	if exit {
 		addExitRoom(transportType, inner)
@@ -240,8 +240,8 @@ func Stop() {
 	client.transport = nil
 	client.packets = nil
 	client.mu.Unlock()
-	detachCaptcha()
-	CancelCaptcha()
+	detachPrompt()
+	CancelPrompt()
 	setAuthProxy(nil)
 	clearRoute()
 	appendLog("[ANDROID] Остановка транспорта")

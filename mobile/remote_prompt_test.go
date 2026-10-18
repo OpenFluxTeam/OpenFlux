@@ -76,7 +76,7 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 // The exit reports a captcha on its document transport; the phone gets a
 // pending check with a proxy, the page loads through the tunnel and the
 // exit, and the cookies land on the exit's transport.
-func TestExitCaptchaSolvedThroughTunnel(t *testing.T) {
+func TestExitPromptSolvedThroughTunnel(t *testing.T) {
 	web := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "captcha page")
 	}))
@@ -134,12 +134,12 @@ func TestExitCaptchaSolvedThroughTunnel(t *testing.T) {
 	}
 	waitUntil(t, "the exit to see the phone", exit.IsConnected)
 
-	exit.NotifyCaptcha("yandex", web.URL, "", "smartcaptcha")
+	exit.NotifyPrompt("yandex", web.URL, "", "smartcaptcha")
 	waitUntil(t, "a pending exit check", func() bool {
-		return PendingCaptchaURL() == web.URL && PendingCaptchaProxy() != ""
+		return PendingPromptURL() == web.URL && PendingPromptProxy() != ""
 	})
 
-	proxyURL := &url.URL{Scheme: "http", Host: PendingCaptchaProxy()}
+	proxyURL := &url.URL{Scheme: "http", Host: PendingPromptProxy()}
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 10 * time.Second}
 	resp, err := client.Get(web.URL)
 	if err != nil {
@@ -151,28 +151,28 @@ func TestExitCaptchaSolvedThroughTunnel(t *testing.T) {
 		t.Fatalf("body = %q", body)
 	}
 
-	if msg := SubmitCaptchaCookies("spravka=s1; yandexuid=7"); msg != "" {
+	if msg := SubmitPromptCookies("spravka=s1; yandexuid=7"); msg != "" {
 		t.Fatal(msg)
 	}
 	waitUntil(t, "cookies on the exit's transport", func() bool { return stuck.applied()["spravka"] == "s1" })
-	if PendingCaptchaURL() != "" || PendingCaptchaProxy() != "" {
+	if PendingPromptURL() != "" || PendingPromptProxy() != "" {
 		t.Fatal("pending check not cleared after submit")
 	}
 }
 
 func TestCancelledExitCheckIsSnoozed(t *testing.T) {
 	t.Cleanup(func() {
-		captcha.mu.Lock()
-		captcha.snooze = nil
-		captcha.mu.Unlock()
+		prompt.mu.Lock()
+		prompt.snooze = nil
+		prompt.mu.Unlock()
 	})
-	captcha.mu.Lock()
-	captcha.url, captcha.remoteName, captcha.proxy = "https://docs.example/d", "yandex", "127.0.0.1:1"
-	captcha.mu.Unlock()
-	CancelCaptcha()
-	captcha.mu.Lock()
-	until := captcha.snooze["yandex"]
-	captcha.mu.Unlock()
+	prompt.mu.Lock()
+	prompt.url, prompt.remoteName, prompt.proxy = "https://docs.example/d", "yandex", "127.0.0.1:1"
+	prompt.mu.Unlock()
+	CancelPrompt()
+	prompt.mu.Lock()
+	until := prompt.snooze["yandex"]
+	prompt.mu.Unlock()
 	if time.Until(until) < remoteSnooze-time.Minute {
 		t.Fatalf("snoozed until %v", until)
 	}

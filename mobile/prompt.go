@@ -12,11 +12,11 @@ import (
 	"github.com/p1neappleXpress/OpenFlux/transport/script"
 )
 
-// Android side of the core's out-of-band captcha/login flow. Desktop and iOS
+// Android side of the core's out-of-band transport prompt flow. Desktop and
 // route it over transport/ipc; gomobile calls straight in instead: the app
-// polls PendingCaptchaURL, lets the user pass the check in a WebView, and
-// hands the resulting cookies to SubmitCaptchaCookies.
-var captcha struct {
+// polls PendingPromptURL, lets the user pass the check in a WebView, and
+// hands the resulting cookies to SubmitPromptCookies.
+var prompt struct {
 	mu    sync.Mutex
 	store *transport.CookieStore
 	key   string
@@ -37,12 +37,12 @@ var captcha struct {
 	// once that transport stopped or failed to start.
 	apply func(map[string]string) error
 	// remoteApply delivers cookies to the exit's transport by name; set by
-	// attachSessionCaptcha so SubmitCaptchaData can forward the node half
+	// attachSessionPrompt so SubmitPromptData can forward the node half
 	// of a {client, node} submission to the exit.
 	remoteApply func(string, map[string]string) error
 
 	// nodeParams holds the "node" half of a {client, node} setup page
-	// submission. It is set by SubmitCaptchaData and read by
+	// submission. It is set by SubmitPromptData and read by
 	// PendingNodeParams so the wizard can provision the node with them.
 	nodeParams     map[string]string
 	nodeParamsName string
@@ -60,67 +60,67 @@ var captcha struct {
 // repeats its report every 20-30s while stuck.
 const remoteSnooze = 10 * time.Minute
 
-// SetCookieStorePath enables persisting solved-captcha cookies across app
+// SetCookieStorePath enables persisting solved-prompt cookies across app
 // restarts. Call once before Start/StartProxy; returns "" or an error.
 func SetCookieStorePath(path string) string {
 	store, err := transport.NewCookieStore(path)
 	if err != nil {
 		return err.Error()
 	}
-	captcha.mu.Lock()
-	captcha.store = store
-	captcha.mu.Unlock()
+	prompt.mu.Lock()
+	prompt.store = store
+	prompt.mu.Unlock()
 	return ""
 }
 
-// attachCaptcha wires the raw (unwrapped, not yet started) transport into
+// attachPrompt wires the raw (unwrapped, not yet started) transport into
 // the flow and replays cookies saved from an earlier solve.
-func attachCaptcha(transportType, documentURL string, raw transport.Transport) {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	captcha.key = transportType + " " + documentURL
-	captcha.url = ""
-	captcha.html = ""
-	captcha.own = false
-	captcha.name = ""
-	captcha.reason = ""
-	captcha.proxy, captcha.remoteName = "", ""
-	captcha.apply = nil
+func attachPrompt(transportType, documentURL string, raw transport.Transport) {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	prompt.key = transportType + " " + documentURL
+	prompt.url = ""
+	prompt.html = ""
+	prompt.own = false
+	prompt.name = ""
+	prompt.reason = ""
+	prompt.proxy, prompt.remoteName = "", ""
+	prompt.apply = nil
 	exchanger, _ := raw.(transport.CookieExchanger)
 	if exchanger != nil {
-		captcha.apply = exchanger.ApplyCookies
+		prompt.apply = exchanger.ApplyCookies
 	}
 	if notifier, ok := raw.(transport.ErrorNotifier); ok {
 		notifier.SetErrorNotifier(func(err error, name, url, html, reason string) {
 			appendLog(fmt.Sprintf("[ANDROID] %s: нужна проверка в браузере (%s)", name, reason))
-			captcha.mu.Lock()
-			captcha.url = url
-			captcha.html = html
-			captcha.own = script.IsOwnPage(url, html)
-			captcha.name = name
-			captcha.reason = reason
-			captcha.mu.Unlock()
+			prompt.mu.Lock()
+			prompt.url = url
+			prompt.html = html
+			prompt.own = script.IsOwnPage(url, html)
+			prompt.name = name
+			prompt.reason = reason
+			prompt.mu.Unlock()
 		})
 	}
-	if captcha.store != nil && exchanger != nil {
-		if saved := captcha.store.Load(captcha.key); len(saved) > 0 {
+	if prompt.store != nil && exchanger != nil {
+		if saved := prompt.store.Load(prompt.key); len(saved) > 0 {
 			_ = exchanger.ApplyCookies(saved)
 		}
 	}
 }
 
-// attachSessionCaptcha does the same for a Session: the Manager reports
+// attachSessionPrompt does the same for a Session: the Manager reports
 // which transport needs the check, and keys maps each cookie-carrying
 // transport to its store key. Saved cookies are replayed by the Manager.
-func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *authProxy) {
-	captcha.mu.Lock()
-	captcha.key, captcha.url, captcha.html, captcha.reason, captcha.apply = "", "", "", "", nil
-	captcha.own = false
-	captcha.name = ""
-	captcha.proxy, captcha.remoteName = "", ""
-	captcha.remoteApply = func(name string, jar map[string]string) error { return m.OfferCookies(name, jar) }
-	store := captcha.store
-	captcha.mu.Unlock()
+func attachSessionPrompt(m *manager.Manager, keys map[string]string, proxy *authProxy) {
+	prompt.mu.Lock()
+	prompt.key, prompt.url, prompt.html, prompt.reason, prompt.apply = "", "", "", "", nil
+	prompt.own = false
+	prompt.name = ""
+	prompt.proxy, prompt.remoteName = "", ""
+	prompt.remoteApply = func(name string, jar map[string]string) error { return m.OfferCookies(name, jar) }
+	store := prompt.store
+	prompt.mu.Unlock()
 	if store != nil {
 		for name, key := range keys {
 			if err := m.UseCookieStore(store, name, key); err != nil {
@@ -128,15 +128,15 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 			}
 		}
 	}
-	m.SetCaptchaNotifier(func(name, url, html, reason string) {
+	m.SetPromptNotifier(func(name, url, html, reason string) {
 		appendLog(fmt.Sprintf("[ANDROID] %s: нужна проверка в браузере (%s)", name, reason))
-		captcha.mu.Lock()
-		captcha.url, captcha.html, captcha.reason, captcha.key = url, html, reason, keys[name]
-		captcha.own = script.IsOwnPage(url, html)
-		captcha.name = name
-		captcha.proxy, captcha.remoteName = "", ""
-		captcha.apply = func(jar map[string]string) error { return m.ApplyCookiesFor(name, jar) }
-		captcha.mu.Unlock()
+		prompt.mu.Lock()
+		prompt.url, prompt.html, prompt.reason, prompt.key = url, html, reason, keys[name]
+		prompt.own = script.IsOwnPage(url, html)
+		prompt.name = name
+		prompt.proxy, prompt.remoteName = "", ""
+		prompt.apply = func(jar map[string]string) error { return m.ApplyCookiesFor(name, jar) }
+		prompt.mu.Unlock()
 	})
 	if proxy == nil {
 		return
@@ -149,9 +149,9 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 			appendLog(fmt.Sprintf("[ANDROID] Нода: %s прислала адрес не https, игнорирую", name))
 			return
 		}
-		captcha.mu.Lock()
-		quiet := captcha.url != "" || captcha.html != "" || time.Now().Before(captcha.snooze[name])
-		captcha.mu.Unlock()
+		prompt.mu.Lock()
+		quiet := prompt.url != "" || prompt.html != "" || time.Now().Before(prompt.snooze[name])
+		prompt.mu.Unlock()
 		if quiet {
 			return
 		}
@@ -161,132 +161,132 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 			return
 		}
 		appendLog(fmt.Sprintf("[ANDROID] Нода: %s требует проверку в браузере (%s)", name, reason))
-		captcha.mu.Lock()
-		captcha.url, captcha.html, captcha.reason, captcha.key = url, html, reason, ""
-		captcha.own = html != ""
-		captcha.name = name
-		captcha.proxy, captcha.remoteName = addr, name
-		captcha.apply = func(jar map[string]string) error { return m.OfferCookies(name, jar) }
-		captcha.mu.Unlock()
+		prompt.mu.Lock()
+		prompt.url, prompt.html, prompt.reason, prompt.key = url, html, reason, ""
+		prompt.own = html != ""
+		prompt.name = name
+		prompt.proxy, prompt.remoteName = addr, name
+		prompt.apply = func(jar map[string]string) error { return m.OfferCookies(name, jar) }
+		prompt.mu.Unlock()
 	})
 }
 
-// PendingCaptchaProxy returns the HTTP proxy (host:port) to open the
+// PendingPromptProxy returns the HTTP proxy (host:port) to open the
 // pending page through when the check belongs to the exit, or "" when it
 // is the phone's own.
-func PendingCaptchaProxy() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.proxy
+func PendingPromptProxy() string {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.proxy
 }
 
-// detachCaptcha drops the live transport reference, so cookies submitted
+// detachPrompt drops the live transport reference, so cookies submitted
 // afterwards are only saved for the next start, never applied to a
 // transport that failed to start or was stopped.
-func detachCaptcha() {
-	captcha.mu.Lock()
-	captcha.apply = nil
-	captcha.remoteApply = nil
-	captcha.mu.Unlock()
+func detachPrompt() {
+	prompt.mu.Lock()
+	prompt.apply = nil
+	prompt.remoteApply = nil
+	prompt.mu.Unlock()
 }
 
-// PendingCaptchaURL returns the page the user must open to pass a captcha
+// PendingPromptURL returns the page the user must open to pass a check
 // or log in, or "" when nothing is pending. Mutually exclusive with
-// PendingCaptchaHTML: a script transport's own page sets one or the other,
-// never both. It is https (a real site), or, when PendingCaptchaOwn is true,
+// PendingPromptHTML: a script transport's own page sets one or the other,
+// never both. It is https (a real site), or, when PendingPromptOwn is true,
 // an http://127.0.0.1:port address the script's own server answers on.
-func PendingCaptchaURL() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.url
+func PendingPromptURL() string {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.url
 }
 
-// PendingCaptchaHTML returns a script transport's own setup/login page
+// PendingPromptHTML returns a script transport's own setup/login page
 // (see transport/script/js/template_html.html) to load directly (e.g.
 // WebView.loadDataWithBaseURL), or "" when the pending check is a real site
-// (PendingCaptchaURL) or nothing is pending.
-func PendingCaptchaHTML() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.html
+// (PendingPromptURL) or nothing is pending.
+func PendingPromptHTML() string {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.html
 }
 
-// PendingCaptchaOwn reports that the pending page is the script's own: its
-// inline PendingCaptchaHTML, or a PendingCaptchaURL on the script's own
+// PendingPromptOwn reports that the pending page is the script's own: its
+// inline PendingPromptHTML, or a PendingPromptURL on the script's own
 // loopback server (http://127.0.0.1:port). The app shows it as it is, gives
-// it window.openfluxSubmit (SubmitCaptchaData takes what it hands over) and
+// it window.openfluxSubmit (SubmitPromptData takes what it hands over) and
 // does not look for cookies in it. False for a real site's check.
-func PendingCaptchaOwn() bool {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.own
+func PendingPromptOwn() bool {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.own
 }
 
-// PendingCaptchaTransport is the name of the transport that asked for the
+// PendingPromptTransport is the name of the transport that asked for the
 // pending page, "" when nothing is pending.
-func PendingCaptchaTransport() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.name
+func PendingPromptTransport() string {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.name
 }
 
-// PendingCaptchaReason is "smartcaptcha" or "login" while a check is pending.
-func PendingCaptchaReason() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	return captcha.reason
+// PendingPromptReason is "smartcaptcha" or "login" while a check is pending.
+func PendingPromptReason() string {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	return prompt.reason
 }
 
-// CancelCaptcha clears the pending check without cookies (user gave up).
+// CancelPrompt clears the pending check without cookies (user gave up).
 // An exit check stays quiet for a while instead of popping up again.
-func CancelCaptcha() {
-	captcha.mu.Lock()
-	if captcha.remoteName != "" {
-		if captcha.snooze == nil {
-			captcha.snooze = make(map[string]time.Time)
+func CancelPrompt() {
+	prompt.mu.Lock()
+	if prompt.remoteName != "" {
+		if prompt.snooze == nil {
+			prompt.snooze = make(map[string]time.Time)
 		}
-		captcha.snooze[captcha.remoteName] = time.Now().Add(remoteSnooze)
+		prompt.snooze[prompt.remoteName] = time.Now().Add(remoteSnooze)
 	}
-	captcha.url = ""
-	captcha.html = ""
-	captcha.own = false
-	captcha.name = ""
-	captcha.reason = ""
-	captcha.proxy, captcha.remoteName = "", ""
-	captcha.mu.Unlock()
+	prompt.url = ""
+	prompt.html = ""
+	prompt.own = false
+	prompt.name = ""
+	prompt.reason = ""
+	prompt.proxy, prompt.remoteName = "", ""
+	prompt.mu.Unlock()
 }
 
-// SubmitCaptchaCookies takes a Cookie header ("a=1; b=2", the format of
+// SubmitPromptCookies takes a Cookie header ("a=1; b=2", the format of
 // Android's CookieManager.getCookie), saves it for future starts and applies
 // it to the running transport. Returns "" or a user-readable error.
-func SubmitCaptchaCookies(cookieHeader string) string {
+func SubmitPromptCookies(cookieHeader string) string {
 	jar := parseCookieHeader(cookieHeader)
 	if len(jar) == 0 {
 		return "Cookies не получены"
 	}
-	return submitCaptchaJar(jar)
+	return submitPromptJar(jar)
 }
 
-// SubmitCaptchaData takes the JSON a script transport's own setup page
+// SubmitPromptData takes the JSON a script transport's own setup page
 // passed to window.openfluxSubmit (script.FlattenSubmission says how it is
 // read: flat or {client: {...}, node: {...}}) and delivers the client half
-// the same way SubmitCaptchaCookies delivers real cookies. The node half
+// the same way SubmitPromptCookies delivers real cookies. The node half
 // (if present) is stored for PendingNodeParams so the wizard can provision
 // the node with it.
-func SubmitCaptchaData(json_ string) string {
+func SubmitPromptData(json_ string) string {
 	client, node, err := script.FlattenSubmissionScoped([]byte(json_))
 	if err != nil {
 		return "Страница настройки: " + err.Error()
 	}
-	captcha.mu.Lock()
-	name := captcha.name
-	remoteApply := captcha.remoteApply
+	prompt.mu.Lock()
+	name := prompt.name
+	remoteApply := prompt.remoteApply
 	if node != nil {
-		captcha.nodeParams = node
-		captcha.nodeParamsName = name
+		prompt.nodeParams = node
+		prompt.nodeParamsName = name
 	}
-	captcha.mu.Unlock()
-	result := submitCaptchaJar(client)
+	prompt.mu.Unlock()
+	result := submitPromptJar(client)
 	if node != nil && remoteApply != nil {
 		go func() {
 			if err := remoteApply(name, node); err != nil {
@@ -305,34 +305,34 @@ func SubmitCaptchaData(json_ string) string {
 // reads this during provisioning to set ChannelTransport.Params on
 // the exit node. Consuming: the value is cleared after reading.
 func PendingNodeParams() string {
-	captcha.mu.Lock()
-	defer captcha.mu.Unlock()
-	if captcha.nodeParams == nil {
+	prompt.mu.Lock()
+	defer prompt.mu.Unlock()
+	if prompt.nodeParams == nil {
 		return ""
 	}
 	out := map[string]interface{}{
-		"transport": captcha.nodeParamsName,
-		"params":    captcha.nodeParams,
+		"transport": prompt.nodeParamsName,
+		"params":    prompt.nodeParams,
 	}
 	b, _ := json.Marshal(out)
-	captcha.nodeParams = nil
-	captcha.nodeParamsName = ""
+	prompt.nodeParams = nil
+	prompt.nodeParamsName = ""
 	return string(b)
 }
 
-// submitCaptchaJar is SubmitCaptchaCookies/SubmitCaptchaData's shared tail:
+// submitPromptJar is SubmitPromptCookies/SubmitPromptData's shared tail:
 // persist for future starts, hand to the live transport, clear the pending
 // check.
-func submitCaptchaJar(jar map[string]string) string {
-	captcha.mu.Lock()
-	store, key, apply := captcha.store, captcha.key, captcha.apply
-	captcha.url = ""
-	captcha.html = ""
-	captcha.own = false
-	captcha.name = ""
-	captcha.reason = ""
-	captcha.proxy, captcha.remoteName = "", ""
-	captcha.mu.Unlock()
+func submitPromptJar(jar map[string]string) string {
+	prompt.mu.Lock()
+	store, key, apply := prompt.store, prompt.key, prompt.apply
+	prompt.url = ""
+	prompt.html = ""
+	prompt.own = false
+	prompt.name = ""
+	prompt.reason = ""
+	prompt.proxy, prompt.remoteName = "", ""
+	prompt.mu.Unlock()
 
 	if store != nil && key != "" {
 		if err := store.Save(key, jar); err != nil {

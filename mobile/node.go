@@ -350,7 +350,7 @@ func NodeCheckDocument(documentURL string) string {
 // for specsJSON (as Profile.sessionTransportsJson builds it) and fetches
 // https://api.ipify.org through the tunnel, expecting the VDS's address
 // (expectHost, resolved here). The node's own Yandex check shows up in
-// PendingCaptchaURL like on a regular connect. Returns {"ip"}. Only one
+// PendingPromptURL like on a regular connect. Returns {"ip"}. Only one
 // connection can run at a time, so the app stops its tunnel first.
 func NodeVerify(specsJSON, secret, expectHost string, timeoutSec int) string {
 	if ProxyIsRunning() || ExitIsRunning() || packetRunning() {
@@ -382,10 +382,10 @@ func NodeVerify(specsJSON, secret, expectHost string, timeoutSec int) string {
 	if err != nil {
 		return failure(err, nil)
 	}
-	// Same order as StopProxy: the captcha side first, then the carriers.
+	// Same order as StopProxy: the prompt side first, then the carriers.
 	defer func() {
-		detachCaptcha()
-		CancelCaptcha()
+		detachPrompt()
+		CancelPrompt()
 		setAuthProxy(nil)
 		clearRoute()
 		_ = trans.Stop()
@@ -411,7 +411,7 @@ func NodeVerify(specsJSON, secret, expectHost string, timeoutSec int) string {
 	// Traffic may have gone through the backup carrier. Give the primary
 	// (highest priority) one the rest of the time to come up: the node may
 	// first need its own Yandex check passed, which reaches the app over the
-	// backup carrier as a pending captcha.
+	// backup carrier as a pending prompt.
 	names := sess.Transports()
 	primary := len(names) > 0 && waitLive(ctx, sess, names[0])
 	return result(map[string]interface{}{"ip": ip, "primary": primary, "live": sess.LiveTransports()})
