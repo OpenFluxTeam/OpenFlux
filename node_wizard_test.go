@@ -285,3 +285,27 @@ func TestNodeWizardRefusesUnknownSource(t *testing.T) {
 		t.Fatalf("connect with an unknown source: %v (dialled %v)", r, dialled)
 	}
 }
+
+// The helper's kit renders without a connection, with the chosen installer, and shows what the client needs of the channel.
+func TestNodeWizardKit(t *testing.T) {
+	w := newNodeWizard()
+	w.newScript = func(source string) (provision.Script, error) { return provision.PinnedFor(source) }
+	key := strings.Repeat("ab", 32)
+	out := wizardCall(t, w, "kit", map[string]interface{}{
+		"channel": "of-kit", "key": key, "autoUpdate": true, "mode": "l3", "source": "official",
+		"transports": []map[string]interface{}{{"type": "mailru", "url": "https://cloud.mail.ru/public/DEmN/ETbZW2MPY"}},
+	})
+	if out["ok"] != true {
+		t.Fatalf("kit: %v", out)
+	}
+	kit := out["kit"].(*provision.Kit)
+	if !strings.Contains(kit.Script, "mode=l3") || !strings.Contains(kit.Script, provision.OfficialSHA256) || !strings.Contains(kit.Script, key) {
+		t.Errorf("kit script = %.400s", kit.Script)
+	}
+	if bad := wizardCall(t, w, "kit", map[string]interface{}{"channel": "of-kit", "key": "short"}); bad["ok"] != false {
+		t.Errorf("a short key made a kit: %v", bad)
+	}
+	if bad := wizardCall(t, w, "kit", map[string]interface{}{"channel": "of-kit", "key": key, "source": "nonsense"}); bad["ok"] != false {
+		t.Errorf("an unknown source made a kit: %v", bad)
+	}
+}

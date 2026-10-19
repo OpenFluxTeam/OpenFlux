@@ -199,6 +199,30 @@ func NodeApply(channel, transportsJSON, key string, port int, autoUpdate bool, s
 	return result(nil)
 }
 
+// NodeKit renders the installation of a channel as a script the person runs
+// by hand on the machine that will host the node (no SSH from the app): the
+// pinned installer, its SHA-256 check, plan, apply. Nothing connects: the app
+// made the key itself (NodeNewChannel). Returns {ok, kit: {script, paste,
+// context, transports[{type, url, priority, script}], installer}}: script is
+// the file to run as root, paste the same as a block for a terminal, context
+// and transports what the client's profile needs of the channel. source picks
+// the installer like NodeConnect's ("fork", "official").
+func NodeKit(channel, transportsJSON, key string, autoUpdate bool, mode, source string) string {
+	ts, err := nodeTransports(transportsJSON)
+	if err != nil {
+		return failure(err, nil)
+	}
+	installer, err := provision.PinnedFor(source)
+	if err != nil {
+		return failure(err, nil)
+	}
+	kit, err := provision.RenderKitFor(provision.Channel{ID: channel, Transports: ts, Key: key, AutoUpdate: autoUpdate, Mode: mode}, installer)
+	if err != nil {
+		return failure(err, nil)
+	}
+	return result(map[string]interface{}{"kit": kit})
+}
+
 // NodeSetCookies gives an installed channel's node a new Yandex sign-in
 // and restarts it.
 func NodeSetCookies(channel, documentURL, cookieHeader, sudoPassword string) string {
