@@ -138,6 +138,10 @@ type Info struct {
 	// settings page of its own (see InspectSettings). Set by Inspect, not by
 	// info().
 	CustomSettings bool
+	// SetupWizard: the script defines Transport.setup(values), a setup wizard
+	// that needs the real host (sockets, httpserver), so an app runs it with
+	// StartSetup before any connection exists. Set by Inspect, not by info().
+	SetupWizard bool
 
 	// ScopeCookiesToParentDomain: when ApplyCookies (the generic Go-side
 	// CookieExchanger - see transport.go) applies externally-supplied

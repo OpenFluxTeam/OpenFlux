@@ -42,6 +42,9 @@ type ScriptTransport struct {
 	file      string            // base name it was loaded from, so an update replaces that very file
 	cfgURL    string
 	cfgParams map[string]interface{}
+	// setupValues, when not nil, makes this transport a setup session (see
+	// StartSetup): the script's Transport.setup(values) runs instead of open().
+	setupValues map[string]string
 
 	httpClient           *http.Client
 	httpClientNoRedirect *http.Client // http.fetch({redirect: "manual"})
@@ -526,6 +529,10 @@ func (t *ScriptTransport) bootstrap(vm *goja.Runtime) error {
 	t.info = info
 	t.infoRead()
 	t.tuneHTTPTransport()
+
+	if t.setupValues != nil {
+		return t.runSetup(vm, obj)
+	}
 
 	openFn, ok := goja.AssertFunction(obj.Get("open"))
 	if !ok {
