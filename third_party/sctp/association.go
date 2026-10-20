@@ -78,20 +78,22 @@ const (
 	defaultMaxMessageSize uint32 = 65536
 )
 
-// initialMTU is the MTU an association sends with when its Config does not say; see SetInitialMTU.
-var initialMTU atomic.Uint32
+// mtuOverride, when not zero, is the MTU every association created from now on sends with, whatever its Config
+// says; see SetOutboundMTU.
+var mtuOverride atomic.Uint32
 
-func init() { initialMTU.Store(defaultInitialMTU) }
-
-// SetInitialMTU sets the MTU that associations created from now on send with when their Config does not name
-// one (1191 by default, which leaves the SCTP packet room for DTLS and a TURN relay inside a 1280-byte IPv6
-// minimum). OpenFlux patch: pion/webrtc does not pass an MTU through, and a path that has to be spent a packet
-// at a time needs the packets as full as the path allows.
-func SetInitialMTU(mtu uint32) error {
-	if err := validateMTU(mtu); err != nil {
-		return err
+// SetOutboundMTU makes the associations created from now on send packets of this size (1191 by default, which
+// leaves the SCTP packet room for DTLS and a TURN relay inside a 1280-byte IPv6 minimum), whatever their Config
+// asks for; 0 gives the choice back to the Config. OpenFlux patch: pion/webrtc asks for 1191 in every
+// association it makes (its sctpOutboundMTU) and has no option to change that, and a path that has to be spent
+// a packet at a time needs the packets as full as the path allows.
+func SetOutboundMTU(mtu uint32) error {
+	if mtu != 0 {
+		if err := validateMTU(mtu); err != nil {
+			return err
+		}
 	}
-	initialMTU.Store(mtu)
+	mtuOverride.Store(mtu)
 
 	return nil
 }
@@ -578,7 +580,7 @@ func (c *Config) applyDefaults() {
 		c.MaxMessageSize = defaultMaxMessageSize
 	}
 	if c.MTU == 0 {
-		c.MTU = initialMTU.Load()
+		c.MTU = defaultInitialMTU
 	}
 	if !c.enableInterleavingSet {
 		c.enableInterleaving = true
@@ -819,8 +821,11 @@ func createAssociationFromConfigWithTsn(cfg *Config, tsn uint32) *Association {
 	}
 
 	mtu := cfg.MTU
+	if o := mtuOverride.Load(); o != 0 {
+		mtu = o
+	}
 	if mtu == 0 {
-		mtu = initialMTU.Load()
+		mtu = defaultInitialMTU
 	}
 
 	rtoMax := cfg.RTOMax

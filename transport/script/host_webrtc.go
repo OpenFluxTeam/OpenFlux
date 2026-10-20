@@ -389,7 +389,7 @@ func tuneConnection(se *webrtc.SettingEngine, t *ScriptTransport, opts *goja.Obj
 		se.SetSCTPMinCwnd(uint32(minCwnd))
 	}
 	if mtu > 0 {
-		if err := sctp.SetInitialMTU(uint32(mtu)); err != nil {
+		if err := sctp.SetOutboundMTU(uint32(mtu)); err != nil {
 			utils.Debugf("[SCRIPT:%s] sctpMtu %d refused: %v", t.name, mtu, err)
 		}
 	}
