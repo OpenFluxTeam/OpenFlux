@@ -669,7 +669,13 @@ func hostEmit(vm *goja.Runtime, t *ScriptTransport) func(goja.FunctionCall) goja
 		}
 		decoded := append([]byte(nil), raw...)
 		t.RecordReceive(len(decoded))
-		utils.SafeGo("script."+t.name+".recv", func() { t.CallReceive(decoded) })
+		select {
+		case t.recvCh <- decoded:
+		default:
+			if n := t.recvDropped.Add(1); n == 1 || n%1000 == 0 {
+				utils.Debugf("[SCRIPT:%s] receive queue full, %d packet(s) dropped", t.name, n)
+			}
+		}
 		return goja.Undefined()
 	}
 }
