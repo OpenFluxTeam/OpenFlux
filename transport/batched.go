@@ -22,6 +22,9 @@ const (
 	defaultLingerMs      = 5
 	batchQueueDepth      = 256 // At most 16 MiB of queued packet data.
 	defaultQueueKB       = 512 // queued data waits behind at most this much
+
+	// strictBatchHint is the largest BatchSizeHinter value that is a hard limit and not a target.
+	strictBatchHint = 4096
 )
 
 // BatchedTransport replaces the old per-packet CompressedTransport. It queues
@@ -48,6 +51,8 @@ type BatchedTransport struct {
 	lingerMs      int
 	maxBatchBytes int
 	maxBatchCount int
+	// strictBatch: maxBatchBytes is a hard limit (one datagram of the carrier), see BatchSizeHinter.
+	strictBatch bool
 
 	running    atomic.Bool
 	lifecycle  sync.Mutex
@@ -94,6 +99,7 @@ func NewBatchedTransport(inner Transport, batchBytesHint ...int) *BatchedTranspo
 		lingerMs:      envInt("OPENFLUX_BATCH_LINGER_MS", defaultLingerMs),
 		maxBatchBytes: min(envInt("OPENFLUX_BATCH_BYTES", defBatchBytes), maxFrameBytes-65537),
 		maxBatchCount: min(envInt("OPENFLUX_BATCH_COUNT", defaultMaxBatchCount), maxFrameRecords-1),
+		strictBatch:   len(batchBytesHint) > 0 && batchBytesHint[0] > 0 && batchBytesHint[0] <= strictBatchHint,
 		stopCh:        make(chan struct{}),
 		space:         make(chan struct{}, 1),
 		budget:        int64(envInt("OPENFLUX_BATCH_QUEUE_KB", defaultQueueKB)) << 10,
@@ -304,17 +310,22 @@ func (b *BatchedTransport) recordSendError(err error) {
 
 func (b *BatchedTransport) flushLoop() {
 	utils.Debugf("[BATCH] flushLoop: started")
+	var carry []byte // a packet that did not fit the strict batch being built: it starts the next one
 	for b.running.Load() {
 		var first []byte
-		select {
-		case <-b.stopCh:
-			utils.Debugf("[BATCH] flushLoop: stop signal, exiting")
-			return
-		case first = <-b.queue:
-			b.took(first)
-			if utils.DebugEnabled() {
-				utils.Debugf("[BATCH] flushLoop: dequeued first packet size=%d (queue %d/%d)",
-					len(first), len(b.queue), cap(b.queue))
+		if carry != nil {
+			first, carry = carry, nil
+		} else {
+			select {
+			case <-b.stopCh:
+				utils.Debugf("[BATCH] flushLoop: stop signal, exiting")
+				return
+			case first = <-b.queue:
+				b.took(first)
+				if utils.DebugEnabled() {
+					utils.Debugf("[BATCH] flushLoop: dequeued first packet size=%d (queue %d/%d)",
+						len(first), len(b.queue), cap(b.queue))
+				}
 			}
 		}
 		batch := [][]byte{first}
@@ -327,6 +338,10 @@ func (b *BatchedTransport) flushLoop() {
 			select {
 			case p := <-b.queue:
 				b.took(p)
+				if b.strictBatch && size+2+len(p) > b.maxBatchBytes {
+					carry = p
+					break drainNow
+				}
 				batch = append(batch, p)
 				size += 2 + len(p)
 			default:
@@ -346,7 +361,7 @@ func (b *BatchedTransport) flushLoop() {
 		// are cheap; one that is rate limited in messages keeps coalescing.
 		idle := b.gate.cheapBytes && len(batch) == 1 &&
 			time.Since(b.lastFlush) > time.Duration(b.lingerMs)*time.Millisecond
-		if !idle && b.lingerMs > 0 && size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
+		if !idle && carry == nil && b.lingerMs > 0 && size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
 			timer := time.NewTimer(time.Duration(b.lingerMs) * time.Millisecond)
 		linger:
 			for size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
@@ -357,6 +372,10 @@ func (b *BatchedTransport) flushLoop() {
 					return
 				case p := <-b.queue:
 					b.took(p)
+					if b.strictBatch && size+2+len(p) > b.maxBatchBytes {
+						carry = p
+						break linger
+					}
 					batch = append(batch, p)
 					size += 2 + len(p)
 				case <-timer.C:

@@ -1111,6 +1111,9 @@ func (s *Session) send(p []byte, raw []byte) error {
 			return err
 		}
 	}
+	if err := fitDeclaredLink(chosen, p); err != nil {
+		return err
+	}
 
 	n := s.cntDataSent.Add(1)
 	if n == 1 || n%100 == 0 {

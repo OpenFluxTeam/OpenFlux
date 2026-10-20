@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/p1neappleXpress/OpenFlux/transport"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/header"
@@ -94,7 +95,7 @@ func (e *TunnelLinkEndpoint) ARPHardwareType() header.ARPHardwareType { return h
 func (e *TunnelLinkEndpoint) AddHeader(*stack.PacketBuffer)           {}
 func (e *TunnelLinkEndpoint) Close()                                  {}
 func (e *TunnelLinkEndpoint) SetMTU(m uint32) {
-	if m >= 1280 && m <= 65000 {
+	if m >= transport.MinCarrierMTU && m <= 65000 {
 		e.mtu.Store(m)
 	}
 }
