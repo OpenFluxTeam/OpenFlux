@@ -13,6 +13,7 @@ import (
 
 	"github.com/p1neappleXpress/OpenFlux/transport"
 	"github.com/p1neappleXpress/OpenFlux/transport/registry"
+	"github.com/p1neappleXpress/OpenFlux/tunnel"
 	"github.com/p1neappleXpress/OpenFlux/utils"
 )
 
@@ -125,6 +126,7 @@ func startPacket(build func() (transport.Transport, error)) string {
 	maxQueue := transport.DefaultConfig().MaxQueueSize
 	trans.Receive(func(data []byte) {
 		packet := append([]byte(nil), data...)
+		tunnel.ClampDeviceSyn(trans, packet)
 		client.mu.Lock()
 		if !client.running {
 			client.mu.Unlock()
@@ -265,7 +267,7 @@ func Send(packet []byte) string {
 	if !running || trans == nil {
 		return "Транспорт не запущен"
 	}
-	if err := trans.Send(packet); err != nil {
+	if err := tunnel.SendFromDevice(trans, packet); err != nil {
 		return err.Error()
 	}
 	return ""
