@@ -1040,7 +1040,8 @@ func (s *Session) helloVia(name string) error {
 	if utils.IsVerbose() {
 		utils.Debugf("[SESSION] hello hexdump:\n%s", hex.Dump(raw))
 	}
-	return link.batched.Send(raw)
+	// A hello is repeated until answered: never wait for a carrier that takes nothing.
+	return link.batched.TrySend(raw)
 }
 
 // ---- IPv4 data ----
@@ -1198,7 +1199,8 @@ func (s *Session) sendControlVia(link *transportLink, subtype control.Subtype, p
 	if utils.IsVerbose() && utils.Sensitive() {
 		utils.Debugf("[SESSION] control hexdump:\n%s", hex.Dump(raw))
 	}
-	return link.batched.Send(raw)
+	// Control frames are periodic or answered; they must never hold the keepalive loop or the receive path.
+	return link.batched.TrySend(raw)
 }
 
 func permittedPacket(p []byte, limits PeerParameters) error {
@@ -1500,7 +1502,8 @@ func (s *Session) offerReplacementLocked(link *transportLink, sender [32]byte, p
 		return
 	}
 	for _, l := range links {
-		_ = l.batched.Send(raw)
+		// The offer goes out from the receive path: a link that takes nothing must not hold it.
+		_ = l.batched.TrySend(raw)
 	}
 }
 
