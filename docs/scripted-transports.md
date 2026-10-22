@@ -208,6 +208,29 @@ exists only in apps that can show such a window (the Android app today): a page
 checks `typeof window.openfluxLogin === "function"` and falls back to asking for
 the data by hand, as the `oneme-webrtc` wizard does with a pasted token.
 
+A site whose sign-in lives in cookies the page cannot read (HttpOnly ones) is asked
+for by the site's own "who am I" path instead of a key:
+
+```js
+window.openfluxLogin({
+  url: "https://app.workspace.vk.ru/calls",
+  title: "Вход в VK Teams",
+  capture: { cookies: true, signedIn: { fetch: "/api/v2/userinfo" } }
+}).then(function (stored) { /* JSON text: {"cookie", "ua", "probe"} */ });
+```
+
+While the window is on the origin it was opened for, it asks that path from inside the
+page (same origin, with the page's cookies) every two seconds; an answer with status 200
+and a JSON content type means someone has signed in. The window then closes and settles
+the promise with `{"cookie": <the Cookie header for the site's origin, HttpOnly cookies
+included>, "ua": <the window's user agent>, "probe": <the path's answer>}`; a script uses
+them as the browser would, with `http.fetch` (the `Cookie` and `User-Agent` headers). The
+path is a path on the site's own origin (no scheme, host or `//`, at most 256 characters),
+and `capture.cookies` excludes `capture.localStorage`. The window starts from that origin's
+cookies and storage emptied, but a sign-in other hosts of the service remember (SSO) may
+sign the same account in again: let the person pick the account on the site. A secret taken
+this way goes to a script's settings as a `secret` parameter, never into a log.
+
 **`devhost`** (`transport/script/devhost`) plays the app for a script under
 development; `scripttest` uses it (`-settings`, `-open`, `-submit`). It is the
 reference for the contract above.
