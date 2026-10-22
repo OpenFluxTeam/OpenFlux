@@ -128,8 +128,8 @@ const (
 // An exit gives its connection to a newer one when the active one has
 // delivered nothing for directQuietTakeover (a live client sends at least every
 // session keepalive, 10 s), and a new connection waits for that at most
-// directAdoptWait, its first record included. Variables for the tests.
-var (
+// directAdoptWait, its first record included.
+const (
 	directQuietTakeover = 25 * time.Second
 	directAdoptWait     = 60 * time.Second
 )
@@ -152,6 +152,9 @@ type DirectTransport struct {
 	// When the active connection last delivered a record (unix ns): an exit
 	// gives the connection to a newer one only once this one has gone quiet.
 	lastRecord atomic.Int64
+	// directQuietTakeover and directAdoptWait, set when the transport is made (tests shorten them).
+	quietTakeover time.Duration
+	adoptWait     time.Duration
 
 	// Accept loop / dial loop lifecycle.
 	done chan struct{}
@@ -191,6 +194,8 @@ func NewDirectTransport(base TransportConfig, cfg DirectConfig) *DirectTransport
 		done:          make(chan struct{}),
 		queue:         make(chan []byte, base.MaxQueueSize),
 		space:         make(chan struct{}, 1),
+		quietTakeover: directQuietTakeover,
+		adoptWait:     directAdoptWait,
 	}
 	utils.Debugf("[DIRECT] created: isExit=%v listen=%q dial=%q handshakeTimeout=%v readTimeout=%v keepAlive=%v maxRecord=%d queueCap=%d queueBytes=%d",
 		cfg.IsExit, cfg.ListenAddr, cfg.DialAddr, cfg.HandshakeTimeout, cfg.ReadTimeout,
@@ -444,7 +449,7 @@ func (t *DirectTransport) acceptLoop() {
 // A live client keeps sending (keepalives at least every 10 s), so a stray
 // connection cannot push it out, and a port scanner never completes a record.
 func (t *DirectTransport) adopt(conn net.Conn) {
-	_ = conn.SetReadDeadline(time.Now().Add(directAdoptWait))
+	_ = conn.SetReadDeadline(time.Now().Add(t.adoptWait))
 	br := bufio.NewReaderSize(conn, directReadBuffer)
 	first, err := t.readRecord(br)
 	if err != nil {
@@ -453,13 +458,13 @@ func (t *DirectTransport) adopt(conn net.Conn) {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
-	deadline := time.Now().Add(directAdoptWait)
+	deadline := time.Now().Add(t.adoptWait)
 	for {
 		t.mu.RLock()
 		cur := t.conn
 		t.mu.RUnlock()
 		quiet := time.Since(time.Unix(0, t.lastRecord.Load()))
-		if cur == nil || cur == conn || quiet >= directQuietTakeover {
+		if cur == nil || cur == conn || quiet >= t.quietTakeover {
 			if cur != nil && cur != conn {
 				utils.Infof("[DIRECT] a new connection takes over from one quiet for %v (the client moved to another network)", quiet.Round(time.Second))
 				_ = cur.Close()

@@ -14,9 +14,6 @@ import (
 
 func startTakeoverExit(t *testing.T) (*DirectTransport, string, chan []byte) {
 	t.Helper()
-	quiet, wait := directQuietTakeover, directAdoptWait
-	directQuietTakeover, directAdoptWait = 400*time.Millisecond, 1500*time.Millisecond
-	t.Cleanup(func() { directQuietTakeover, directAdoptWait = quiet, wait })
 	ln, err := netListen()
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +21,7 @@ func startTakeoverExit(t *testing.T) (*DirectTransport, string, chan []byte) {
 	addr := ln.Addr().String()
 	_ = ln.Close()
 	exit := NewDirectTransport(DefaultConfig(), DirectConfig{IsExit: true, ListenAddr: addr, HandshakeTimeout: 2 * time.Second, MaxRecordBytes: 65535})
+	exit.quietTakeover, exit.adoptWait = 400*time.Millisecond, 1500*time.Millisecond
 	got := make(chan []byte, 64)
 	exit.Receive(func(p []byte) { got <- append([]byte(nil), p...) })
 	if err := exit.Start(); err != nil {
