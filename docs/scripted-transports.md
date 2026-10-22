@@ -231,6 +231,27 @@ cookies and storage emptied, but a sign-in other hosts of the service remember (
 sign the same account in again: let the person pick the account on the site. A secret taken
 this way goes to a script's settings as a `secret` parameter, never into a log.
 
+When there is nothing to sign in to but something to make on the site (a document, a board, a
+room), ask for the page the person ends on:
+
+```js
+window.openfluxLogin({
+  url: "https://boards.yandex.ru/",
+  title: "Яндекс Доски",
+  capture: { page: { match: "^https://boards\\.yandex\\.ru/whiteboard/.*hash=", hint: "Создайте доску и откройте её" } }
+}).then(function (stored) { /* JSON text: {"url", "title"} */ });
+```
+
+The person works on the real site; the window closes by itself once its address has matched
+`match` (Java regular expression syntax, searched in the whole address, which a single-page
+app's route changes count towards) for a moment, and a button in the window's bar, «Это она»,
+takes the page it is on whatever its address is, which is the way out when the site's addresses
+are not what the script expected. `hint` is the line the bar shows (at most 160 characters);
+`page: true` has the button only. The window may go to any https address on the way (a sign-in
+often changes the host). The script gets the address and the title of the page (the title only
+while the window is on the site it was opened for) and nothing else of what the person did, and
+`capture.page` excludes `capture.localStorage` and `capture.cookies`.
+
 **`devhost`** (`transport/script/devhost`) plays the app for a script under
 development; `scripttest` uses it (`-settings`, `-open`, `-submit`). It is the
 reference for the contract above.
