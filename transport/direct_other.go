@@ -2,7 +2,14 @@
 
 package transport
 
-import "net"
+import (
+	"net"
+	"time"
+)
+
+// setDeadPeerTimeout is Linux's TCP_USER_TIMEOUT; elsewhere the keepalive
+// alone finds a dead peer.
+func setDeadPeerTimeout(net.Conn, time.Duration) {}
 
 // carrierSendBuffer is the send buffer given to the carrier socket where there
 // is no TCP_NOTSENT_LOWAT. Windows sizes it from the receiver's window and
