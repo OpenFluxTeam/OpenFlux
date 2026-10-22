@@ -1343,15 +1343,21 @@ func runExit(trans transport.Transport, exitMode tunnel.ExitMode) {
 // streamCarrier builds the carrier the stream mux rides.
 func streamCarrier(transportType, url string) phpbox.Carrier {
 	switch transportType {
-	case "cupsonline", "yandex", "", "vyandex", "mailru":
+	case "cupsonline", "avito", "yandex", "", "vyandex", "mailru":
 	default:
-		log.Fatalf("--mode=stream: transport %q not supported (use cupsonline, yandex, vyandex, mailru)", transportType)
+		log.Fatalf("--mode=stream: transport %q not supported (use cupsonline, avito, yandex, vyandex, mailru)", transportType)
 	}
 	t, err := registry.New(transportType, url, nil, registry.Options{
 		Base: transport.DefaultConfig(), YandexCookiesFile: yandexCookiesFile, AvitoCookies: avitoCookiesStr,
 	})
 	if err != nil {
 		log.Fatalf("--mode=stream %s: %v", transportType, err)
+	}
+	// A phpbox exit speaks the plain carrier wire, not the striped link layer
+	// (registry wraps cupsonline/avito in StripedTransport for the Session path).
+	// --mode=stream always talks to a phpbox exit, so unwrap to the plain inner.
+	if u, ok := t.(interface{ Inner() transport.Transport }); ok {
+		t = u.Inner()
 	}
 	carrier, ok := t.(phpbox.Carrier)
 	if !ok {
