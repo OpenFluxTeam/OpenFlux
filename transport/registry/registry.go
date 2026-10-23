@@ -44,6 +44,10 @@ type Options struct {
 	// apps tell the user); without it the CLI's behavior stays: the transport
 	// fails when it starts.
 	StrictDirect bool
+	// ScriptDir, when set, holds JS packages (<id>.flux, signed by the
+	// project's key) that replace the native transports of the same wire
+	// (see nativeScriptIDs): --native-scripts / NativeScripts.
+	ScriptDir string
 }
 
 // The error texts are still the ones the apps showed before this package
@@ -62,6 +66,9 @@ func New(typ, url string, params map[string]interface{}, o Options) (transport.T
 	}
 	if urls := groupURLs(url, params); urls != nil {
 		return newGroup(typ, urls, params, o)
+	}
+	if t, ok := fromScript(typ, url, params, o); ok {
+		return t, nil
 	}
 	base := o.Base
 	if o.LowMemory {

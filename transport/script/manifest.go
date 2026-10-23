@@ -172,6 +172,9 @@ type Info struct {
 	HTTPMaxConnsPerHost int
 	HTTPMaxIdleConns    int
 	HTTPIdleConnTimeout time.Duration
+
+	// Auth is the sign-in the transport needs (see Auth); nil: none.
+	Auth *Auth
 }
 
 // rawInfo mirrors the JSON shape scripts return from info(); durations cross
@@ -192,6 +195,7 @@ type rawInfo struct {
 	HTTPMaxConnsPerHost        int     `json:"httpMaxConnsPerHost"`
 	HTTPMaxIdleConns           int     `json:"httpMaxIdleConns"`
 	HTTPIdleConnTimeoutMs      float64 `json:"httpIdleConnTimeoutMs"`
+	Auth                       *Auth   `json:"auth"`
 }
 
 func parseInfo(v goja.Value) (Info, error) {
@@ -234,5 +238,6 @@ func parseInfo(v goja.Value) (Info, error) {
 		HTTPMaxConnsPerHost:        raw.HTTPMaxConnsPerHost,
 		HTTPMaxIdleConns:           raw.HTTPMaxIdleConns,
 		HTTPIdleConnTimeout:        time.Duration(raw.HTTPIdleConnTimeoutMs * float64(time.Millisecond)),
+		Auth:                       raw.Auth,
 	}, nil
 }

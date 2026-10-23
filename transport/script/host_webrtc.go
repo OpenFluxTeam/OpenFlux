@@ -31,6 +31,11 @@ func registerWebRTC(vm *goja.Runtime, t *ScriptTransport) {
 }
 
 func newPeerConnectionJS(vm *goja.Runtime, t *ScriptTransport, call goja.FunctionCall) goja.Value {
+	if opts, ok := call.Argument(0).(*goja.Object); ok {
+		if v := opts.Get("media"); v != nil && !goja.IsUndefined(v) && !goja.IsNull(v) {
+			return newMediaPeerConnectionJS(vm, t, call, opts, v.String())
+		}
+	}
 	config := webrtc.Configuration{}
 	var settings webrtc.SettingEngine
 	var pace *paceConfig
@@ -60,7 +65,13 @@ func newPeerConnectionJS(vm *goja.Runtime, t *ScriptTransport, call goja.Functio
 		panic(vm.NewGoError(err))
 	}
 	t.addCloser(func() { _ = pc.Close() })
+	return commonPCObject(vm, t, pc, pace)
+}
 
+// commonPCObject builds the JS PeerConnection surface shared by the plain and
+// the media-aware peer connections: candidates, state, data channels and the
+// offer/answer/candidate methods.
+func commonPCObject(vm *goja.Runtime, t *ScriptTransport, pc *webrtc.PeerConnection, pace *paceConfig) *goja.Object {
 	obj := vm.NewObject()
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {

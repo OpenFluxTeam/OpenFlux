@@ -62,8 +62,7 @@ type ScriptTransport struct {
 	// recvCh holds what the script emitted, in the order it emitted it, for recvPump to hand to the
 	// session one at a time. A goroutine per emitted packet (what this was) lets two packets that came
 	// out of the carrier in order go in in either: inside a tunnel carrying TCP that looks like loss.
-	recvCh      chan []byte
-	recvDropped atomic.Uint64
+	recvCh chan []byte
 
 	mu          sync.RWMutex
 	lastState   string
@@ -97,6 +96,12 @@ type ScriptTransport struct {
 
 	httpServersMu sync.Mutex
 	httpServers   []ownedServer
+
+	// lanes is the stripe a script opened with lanes.open (see lanes.go).
+	lanes laneSet
+	// pubTrack is the one publishing media track (host_media.go), for the
+	// stripe's UplinkLoss.
+	pubTrack atomic.Pointer[*publishTrack]
 }
 
 // New builds a script transport from a signed JS file at scriptPath. pubKey
@@ -128,7 +133,6 @@ func New(name, scriptPath string, pubKey ed25519.PublicKey, url string, params m
 	if err != nil {
 		return nil, fmt.Errorf("script: cookie jar: %w", err)
 	}
-
 	t := &ScriptTransport{
 		BaseTransport: transport.NewBaseTransport(baseCfg),
 		name:          name,
@@ -171,6 +175,11 @@ func (t *ScriptTransport) setRoomList(packed string) {
 	t.roomList = packed
 	f := t.onRoomList
 	t.roomMu.Unlock()
+	if changed {
+		// What the native room carriers print, so the CLI and the scripts that
+		// read an exit's output treat a script's rooms the same way.
+		fmt.Printf("\n=== COPY THIS TO CLIENT ===\n%s\n===========================\n", packed)
+	}
 	if changed && f != nil {
 		f(packed)
 	}
@@ -212,7 +221,7 @@ func (t *ScriptTransport) Installed() (inst Installed, ok bool) {
 // single shared jar would let one session's cookies silently clobber
 // another's.
 func (t *ScriptTransport) buildHTTPClients(jar *cookiejar.Jar) (*http.Client, *http.Client) {
-	tr := &http.Transport{DialContext: t.dialer().DialContext}
+	tr := &http.Transport{DialContext: t.dialContext}
 	if t.info.HTTPMaxConnsPerHost > 0 {
 		tr.MaxIdleConnsPerHost = t.info.HTTPMaxConnsPerHost
 		tr.MaxConnsPerHost = t.info.HTTPMaxConnsPerHost
@@ -429,7 +438,8 @@ func (t *ScriptTransport) Start() error {
 		return err
 	}
 	t.writeCh = make(chan []byte, t.GetConfig().MaxQueueSize)
-	t.recvCh = make(chan []byte, recvQueueDepth)
+	t.recvCh = make(chan []byte, recvQueue)
+	utils.SafeGo("script."+t.name+".recv", t.recvPump)
 	t.loop = eventloop.NewEventLoop(eventloop.EnableConsole(true))
 
 	// Queue the bootstrap job before Start(): RunOnLoop is documented safe
@@ -456,24 +466,7 @@ func (t *ScriptTransport) Start() error {
 	}
 
 	utils.SafeGo("script."+t.name+".writer", t.writerPump)
-	utils.SafeGo("script."+t.name+".recv", t.recvPump)
 	return nil
-}
-
-// recvQueueDepth is how many received packets may wait for the session. A carrier is a lossy medium
-// anyway: when the session is that far behind, dropping is what makes the TCP inside slow down.
-const recvQueueDepth = 4096
-
-// recvPump hands the packets the script emitted to the session, one at a time, in order.
-func (t *ScriptTransport) recvPump() {
-	for {
-		select {
-		case p := <-t.recvCh:
-			t.CallReceive(p)
-		case <-t.Done():
-			return
-		}
-	}
 }
 
 func (t *ScriptTransport) Stop() error {
@@ -481,6 +474,9 @@ func (t *ScriptTransport) Stop() error {
 		return err
 	}
 	t.stopOnce.Do(t.shutdown)
+	if st, _ := t.lanes.get(); st != nil {
+		_ = st.Stop()
+	}
 	return nil
 }
 
@@ -611,6 +607,13 @@ func (t *ScriptTransport) Send(data []byte) error {
 	if !t.IsConnected() {
 		return fmt.Errorf("transport not connected")
 	}
+	if st, _ := t.lanes.get(); st != nil {
+		if err := st.Send(data); err != nil {
+			return err
+		}
+		t.RecordSend(len(data))
+		return nil
+	}
 	select {
 	case t.writeCh <- data:
 		t.RecordSend(len(data))
@@ -621,49 +624,63 @@ func (t *ScriptTransport) Send(data []byte) error {
 }
 
 // writerPump drains writeCh and calls into the script's write() export on
-// the script's own loop goroutine, one packet at a time. A packet that
-// fails to send is retried after 15ms (same backoff mailru's native writer
-// loop uses) rather than dropped - the reconnect the script schedules
-// internally is what actually clears the jam.
+// the script's own loop goroutine: every packet already queued goes in one
+// trip to the loop (one round trip per packet capped a fast carrier at the
+// loop's latency). A packet whose write() throws is retried after 15ms (same
+// backoff mailru's native writer loop uses) with the ones behind it, rather
+// than dropped - the reconnect the script schedules internally is what
+// actually clears the jam.
 func (t *ScriptTransport) writerPump() {
-	var pending []byte
+	var batch [][]byte
 	for t.IsRunning() {
-		if pending == nil {
+		if len(batch) == 0 {
 			select {
 			case p, ok := <-t.writeCh:
 				if !ok {
 					return
 				}
-				pending = p
+				batch = append(batch, p)
 			case <-t.Done():
 				return
 			}
 		}
+	fill:
+		for len(batch) < writeBatch {
+			select {
+			case p := <-t.writeCh:
+				batch = append(batch, p)
+			default:
+				break fill
+			}
+		}
 
-		result := make(chan bool, 1)
+		result := make(chan int, 1)
+		todo := batch
 		posted := t.loop.RunOnLoop(func(vm *goja.Runtime) {
 			writeFn, isFn := goja.AssertFunction(t.jsTransport.Get("write"))
 			if !isFn {
-				result <- false
+				result <- 0
 				return
 			}
-			// pending is freshly dequeued and touched by nothing else, so
-			// handing it to the script as an ArrayBuffer with no copy is
-			// safe - this is the fast path the base64-string boundary used
-			// to spend an encode on.
-			buf := vm.NewArrayBuffer(pending)
-			_, err := writeFn(t.jsTransport, vm.ToValue(buf))
-			result <- err == nil
+			for i, p := range todo {
+				// p is freshly dequeued and touched by nothing else, so
+				// handing it to the script as an ArrayBuffer with no copy is
+				// safe.
+				if _, err := writeFn(t.jsTransport, vm.ToValue(vm.NewArrayBuffer(p))); err != nil {
+					result <- i
+					return
+				}
+			}
+			result <- len(todo)
 		})
 		if !posted {
 			return // loop already terminated
 		}
 
 		select {
-		case ok := <-result:
-			if ok {
-				pending = nil
-			} else {
+		case n := <-result:
+			batch = append(batch[:0], batch[n:]...)
+			if len(batch) > 0 {
 				time.Sleep(15 * time.Millisecond)
 			}
 		case <-t.Done():
@@ -671,3 +688,32 @@ func (t *ScriptTransport) writerPump() {
 		}
 	}
 }
+
+// writeBatch is the most packets one trip to the script's loop writes.
+const writeBatch = 256
+
+// recvQueue is how many received packets may wait for the core before the
+// script's loop waits for it.
+const recvQueue = 4096
+
+// deliverOrdered hands one received packet (owned by the callee) to the
+// core, after every packet delivered before it.
+func (t *ScriptTransport) deliverOrdered(b []byte) {
+	t.RecordReceive(len(b))
+	select {
+	case t.recvCh <- b:
+	case <-t.Done():
+	}
+}
+
+func (t *ScriptTransport) recvPump() {
+	for {
+		select {
+		case b := <-t.recvCh:
+			t.CallReceive(b)
+		case <-t.Done():
+			return
+		}
+	}
+}
+

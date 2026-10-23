@@ -305,6 +305,7 @@ func main() {
 	yandexURL := flag.String("yandex-url", "", "URL for the yandex transport (overrides --url in --transports mode)")
 	vyandexURL := flag.String("vyandex-url", "", "URL for the vyandex transport")
 	flag.StringVar(&yandexCookiesFile, "yandex-cookies-file", "", "Netscape cookies.txt with a Yandex login for vyandex transports")
+	flag.StringVar(&nativeScriptsDir, "native-scripts", "", "Directory of JS packages (<type>.flux, signed by the project's key) that replace the native transports of the same wire")
 	boardsURL := flag.String("boards-url", "", "URL for the boards transport")
 	mailruURL := flag.String("mailru-url", "", "URL (weblink) for the mailru transport")
 	cupsonlineURL := flag.String("cupsonline-url", "", "URL for the cupsonline transport")
@@ -530,6 +531,7 @@ DEPRECATED (removed in v2)
 		applyConfString(conf.Interface, "Transport", "transport", transportType, setFlags)
 		applyConfString(conf.Interface, "Mode", "mode", mode, setFlags)
 		applyConfString(conf.Interface, "Codec", "codec", codec, setFlags)
+		applyConfString(conf.Interface, "NativeScripts", "native-scripts", &nativeScriptsDir, setFlags)
 		applyConfString(conf.Interface, "Socks5", "socks5", socksAddr, setFlags)
 		applyConfString(conf.Interface, "EncryptionKeyFile", "encryption-key-file", encryptionKeyFile, setFlags)
 		applyConfString(conf.Interface, "SessionContext", "session-context", sessionContextFlag, setFlags)
@@ -1097,7 +1099,7 @@ DEPRECATED (removed in v2)
 		}
 		inner, err := registry.New(*transportType, globalDocUrl,
 			classicParams(maxToken, maxUid, isExit, *lanesFlag),
-			registry.Options{Base: config, IsExit: isExit, YandexCookiesFile: yandexCookiesFile, AvitoCookies: avitoCookiesStr})
+			registry.Options{Base: config, IsExit: isExit, YandexCookiesFile: yandexCookiesFile, AvitoCookies: avitoCookiesStr, ScriptDir: nativeScriptsDir})
 		if err != nil {
 			log.Fatalf("%s: %v", *transportType, err)
 		}
