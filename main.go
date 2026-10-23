@@ -1062,7 +1062,7 @@ DEPRECATED (removed in v2)
 
 			// Checks for local transports go to the app as-is; checks the
 			// exit reports are marked Remote, to be passed from its address.
-			managerInst.SetCaptchaNotifier(func(name, url, html, reason string) {
+			managerInst.SetPromptNotifier(func(name, url, html, reason string) {
 				_ = srv.SendCookiesRequest(localCheckRequest(name, url, html, reason))
 			})
 			if *role == roleClient {

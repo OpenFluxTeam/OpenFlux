@@ -655,6 +655,7 @@ func (t *DirectTransport) writerLoop() {
 	utils.Debugf("[DIRECT] writerLoop: started")
 	var batch [][]byte // framed records ([len][payload]) not yet fully written
 	var out net.Buffers
+	holding := false // the wait for a connection has been logged
 	for {
 		if len(batch) == 0 {
 			select {
@@ -681,7 +682,12 @@ func (t *DirectTransport) writerLoop() {
 		conn := t.conn
 		t.mu.RUnlock()
 		if conn == nil {
-			utils.Debugf("[DIRECT] writerLoop: no active conn, holding %d records; retrying in 20ms", len(batch))
+			// Once per wait: a carrier that is never dialed (the exit's listener while the client
+			// uses another carrier) would otherwise log 50 lines a second for as long as it lives.
+			if !holding {
+				holding = true
+				utils.Debugf("[DIRECT] writerLoop: no active conn, holding %d records until there is one", len(batch))
+			}
 			select {
 			case <-t.done:
 				utils.Debugf("[DIRECT] writerLoop: done during wait, exiting")
@@ -690,6 +696,7 @@ func (t *DirectTransport) writerLoop() {
 			}
 			continue
 		}
+		holding = false
 
 		out = append(out[:0], batch...) // WriteTo consumes its slice
 		t.writeMu.Lock()

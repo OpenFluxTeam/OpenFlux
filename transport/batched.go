@@ -22,7 +22,20 @@ const (
 	defaultLingerMs      = 5
 	batchQueueDepth      = 256 // At most 16 MiB of queued packet data.
 	defaultQueueKB       = 512 // queued data waits behind at most this much
+	ctrlQueueDepth       = 64  // control frames waiting for the carrier, see TrySend
+	defaultStuckMs       = 3000
+
+	// strictBatchHint is the largest BatchSizeHinter value that is a hard limit and not a target.
+	strictBatchHint = 4096
 )
+
+// ErrCarrierStuck is what Send returns for a packet when the queue is full and the carrier has taken
+// nothing for stuckAfter: the packet is dropped (the flows above retransmit) instead of holding its sender
+// for as long as the carrier stays down.
+var ErrCarrierStuck = errors.New("batched transport: the carrier takes nothing")
+
+// ErrQueueFull is what TrySend returns when the control queue has no room.
+var ErrQueueFull = errors.New("batched transport: control queue full")
 
 // BatchedTransport replaces the old per-packet CompressedTransport. It queues
 // outgoing tunnel packets, coalesces bursts into a single framed+zstd batch per
@@ -38,6 +51,13 @@ type BatchedTransport struct {
 	Transport
 
 	queue chan []byte
+	// ctrl carries control frames (TrySend): they go out ahead of the queued data, and a full ctrl drops
+	// the frame, so nothing that sends one can be held by a carrier that takes nothing.
+	ctrl chan []byte
+	// failingSince is when the carrier started refusing frames (unix nanoseconds), 0 while it takes them.
+	// A Send that finds the queue full gives up once this is stuckAfter old.
+	failingSince atomic.Int64
+	stuckAfter   time.Duration
 
 	// queuedBytes/budget bound the data waiting in queue by size, not only by
 	// packet count: with large packets 256 of them is megabytes, which every
@@ -48,6 +68,8 @@ type BatchedTransport struct {
 	lingerMs      int
 	maxBatchBytes int
 	maxBatchCount int
+	// strictBatch: maxBatchBytes is a hard limit (one datagram of the carrier), see BatchSizeHinter.
+	strictBatch bool
 
 	running    atomic.Bool
 	lifecycle  sync.Mutex
@@ -61,8 +83,8 @@ type BatchedTransport struct {
 	// every frame into a record of its own and keeps nothing of it, so the frame
 	// buffer goes back to the pool once it is sent; and the plaintext it hands
 	// up is a fresh buffer the batch decoder may alias.
-	pooled bool
-	lastFlush  time.Time    // flushLoop only: when the last batch went out
+	pooled    bool
+	lastFlush time.Time // flushLoop only: when the last batch went out
 
 	mu     sync.RWMutex
 	userCb func([]byte)
@@ -91,9 +113,12 @@ func NewBatchedTransport(inner Transport, batchBytesHint ...int) *BatchedTranspo
 		Transport:     inner,
 		pooled:        enc,
 		queue:         make(chan []byte, batchQueueDepth),
+		ctrl:          make(chan []byte, ctrlQueueDepth),
+		stuckAfter:    time.Duration(envInt("OPENFLUX_BATCH_STUCK_MS", defaultStuckMs)) * time.Millisecond,
 		lingerMs:      envInt("OPENFLUX_BATCH_LINGER_MS", defaultLingerMs),
 		maxBatchBytes: min(envInt("OPENFLUX_BATCH_BYTES", defBatchBytes), maxFrameBytes-65537),
 		maxBatchCount: min(envInt("OPENFLUX_BATCH_COUNT", defaultMaxBatchCount), maxFrameRecords-1),
+		strictBatch:   len(batchBytesHint) > 0 && batchBytesHint[0] > 0 && batchBytesHint[0] <= strictBatchHint,
 		stopCh:        make(chan struct{}),
 		space:         make(chan struct{}, 1),
 		budget:        int64(envInt("OPENFLUX_BATCH_QUEUE_KB", defaultQueueKB)) << 10,
@@ -176,8 +201,8 @@ func (b *BatchedTransport) SendOwned(p []byte) error {
 		}
 		return fmt.Errorf("packet too large for batch record: %d bytes", len(p))
 	}
-	if !b.reserve(int64(len(p))) {
-		return fmt.Errorf("batched transport is stopped")
+	if err := b.reserve(int64(len(p))); err != nil {
+		return err
 	}
 	select {
 	case <-b.stopCh:
@@ -186,11 +211,9 @@ func (b *BatchedTransport) SendOwned(p []byte) error {
 	case b.queue <- p:
 	default:
 		b.queueWaits.Add(1)
-		select {
-		case <-b.stopCh:
+		if err := b.waitForQueue(p); err != nil {
 			b.queuedBytes.Add(-int64(len(p)))
-			return fmt.Errorf("batched transport is stopped")
-		case b.queue <- p:
+			return err
 		}
 	}
 	if !b.running.Load() {
@@ -203,21 +226,90 @@ func (b *BatchedTransport) SendOwned(p []byte) error {
 	return nil
 }
 
+// TrySend queues a control frame (hello, ping, challenge) ahead of the data and never waits: when the
+// carrier takes nothing and the small control queue is full the frame is dropped, which the periodic
+// senders of these frames make up for. Send would hold its caller until the carrier took the backlog,
+// and a carrier that never does (a Direct listener nobody dials) held the Session's keepalive loop and
+// its receive path for good.
+func (b *BatchedTransport) TrySend(data []byte) error {
+	if !b.running.Load() {
+		return fmt.Errorf("batched transport is not running")
+	}
+	if len(data) > 65535 {
+		return fmt.Errorf("packet too large for batch record: %d bytes", len(data))
+	}
+	p := make([]byte, len(data))
+	copy(p, data)
+	select {
+	case b.ctrl <- p:
+		return nil
+	default:
+		return ErrQueueFull
+	}
+}
+
+// stuckFor is how long the carrier has been refusing frames, 0 while it takes them.
+func (b *BatchedTransport) stuckFor() time.Duration {
+	since := b.failingSince.Load()
+	if since == 0 {
+		return 0
+	}
+	return time.Since(time.Unix(0, since))
+}
+
+// stuck reports that the carrier has refused frames for stuckAfter: a Send that would have to wait gives up.
+func (b *BatchedTransport) stuck() bool {
+	return b.stuckAfter > 0 && b.stuckFor() >= b.stuckAfter
+}
+
+func (b *BatchedTransport) noteStuck() {
+	if utils.Throttled(fmt.Sprintf("batch.stuck.%p", b), time.Minute) {
+		utils.Infof("[BATCH] the carrier has taken nothing for %v: packets for it are dropped until it does (%d queued)",
+			b.stuckFor().Round(time.Second), len(b.queue))
+	}
+}
+
+// waitForQueue queues p once the queue has room. A flow feels backpressure while the carrier is slow or
+// reconnecting, but is not held by one that has taken nothing for stuckAfter: then p is dropped, and so is
+// every later packet at once until the carrier takes a frame again.
+func (b *BatchedTransport) waitForQueue(p []byte) error {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if b.stuck() {
+			b.noteStuck()
+			return ErrCarrierStuck
+		}
+		select {
+		case <-b.stopCh:
+			return fmt.Errorf("batched transport is stopped")
+		case b.queue <- p:
+			return nil
+		case <-tick.C:
+		}
+	}
+}
+
 // reserve waits until size more bytes fit the queue budget (an empty queue
-// always takes one packet), counting them as queued. It reports false when the
-// transport stops meanwhile. The wait is what makes a flow feel backpressure.
-func (b *BatchedTransport) reserve(size int64) bool {
+// always takes one packet), counting them as queued. It fails when the
+// transport stops meanwhile, or when the carrier has taken nothing for
+// stuckAfter. The wait is what makes a flow feel backpressure.
+func (b *BatchedTransport) reserve(size int64) error {
 	if b.budget <= 0 {
-		return true
+		return nil
 	}
 	waited := false
 	for {
 		cur := b.queuedBytes.Load()
 		if cur == 0 || cur+size <= b.budget {
 			if b.queuedBytes.CompareAndSwap(cur, cur+size) {
-				return true
+				return nil
 			}
 			continue
+		}
+		if b.stuck() {
+			b.noteStuck()
+			return ErrCarrierStuck
 		}
 		if !waited {
 			waited = true
@@ -226,7 +318,7 @@ func (b *BatchedTransport) reserve(size int64) bool {
 		select {
 		case <-b.space:
 		case <-b.stopCh:
-			return false
+			return fmt.Errorf("batched transport is stopped")
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
@@ -302,19 +394,42 @@ func (b *BatchedTransport) recordSendError(err error) {
 	utils.Debugf("[BATCH] send error (total=%d): %v", b.sendErrors.Load(), err)
 }
 
+// retryWait is the pause before the pending batch is offered to the carrier again, given how long the
+// carrier has been refusing: a hiccup is retried at once, a carrier that stays down every half second.
+func retryWait(failing time.Duration) time.Duration {
+	switch {
+	case failing < time.Second:
+		return 10 * time.Millisecond
+	case failing < 5*time.Second:
+		return 100 * time.Millisecond
+	default:
+		return 500 * time.Millisecond
+	}
+}
+
 func (b *BatchedTransport) flushLoop() {
 	utils.Debugf("[BATCH] flushLoop: started")
+	var carry []byte // a packet that did not fit the strict batch being built: it starts the next one
 	for b.running.Load() {
 		var first []byte
-		select {
-		case <-b.stopCh:
-			utils.Debugf("[BATCH] flushLoop: stop signal, exiting")
-			return
-		case first = <-b.queue:
-			b.took(first)
-			if utils.DebugEnabled() {
-				utils.Debugf("[BATCH] flushLoop: dequeued first packet size=%d (queue %d/%d)",
-					len(first), len(b.queue), cap(b.queue))
+		if carry != nil {
+			first, carry = carry, nil
+		} else {
+			select {
+			case first = <-b.ctrl: // control frames go ahead of the data
+			default:
+				select {
+				case <-b.stopCh:
+					utils.Debugf("[BATCH] flushLoop: stop signal, exiting")
+					return
+				case first = <-b.ctrl:
+				case first = <-b.queue:
+					b.took(first)
+					if utils.DebugEnabled() {
+						utils.Debugf("[BATCH] flushLoop: dequeued first packet size=%d (queue %d/%d)",
+							len(first), len(b.queue), cap(b.queue))
+					}
+				}
 			}
 		}
 		batch := [][]byte{first}
@@ -324,14 +439,23 @@ func (b *BatchedTransport) flushLoop() {
 		// alone collapses a window's worth of segments into one message.
 	drainNow:
 		for size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
+			var p []byte
 			select {
-			case p := <-b.queue:
-				b.took(p)
-				batch = append(batch, p)
-				size += 2 + len(p)
+			case p = <-b.ctrl:
 			default:
+				select {
+				case p = <-b.queue:
+					b.took(p)
+				default:
+					break drainNow
+				}
+			}
+			if b.strictBatch && size+2+len(p) > b.maxBatchBytes {
+				carry = p
 				break drainNow
 			}
+			batch = append(batch, p)
+			size += 2 + len(p)
 		}
 		if utils.DebugEnabled() {
 			utils.Debugf("[BATCH] flushLoop: phase1 drained to %d packets, %d bytes", len(batch), size)
@@ -346,7 +470,7 @@ func (b *BatchedTransport) flushLoop() {
 		// are cheap; one that is rate limited in messages keeps coalescing.
 		idle := b.gate.cheapBytes && len(batch) == 1 &&
 			time.Since(b.lastFlush) > time.Duration(b.lingerMs)*time.Millisecond
-		if !idle && b.lingerMs > 0 && size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
+		if !idle && carry == nil && b.lingerMs > 0 && size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
 			timer := time.NewTimer(time.Duration(b.lingerMs) * time.Millisecond)
 		linger:
 			for size < b.maxBatchBytes && len(batch) < b.maxBatchCount {
@@ -355,8 +479,19 @@ func (b *BatchedTransport) flushLoop() {
 					timer.Stop()
 					utils.Debugf("[BATCH] flushLoop: stop during linger, exiting")
 					return
+				case p := <-b.ctrl:
+					if b.strictBatch && size+2+len(p) > b.maxBatchBytes {
+						carry = p
+						break linger
+					}
+					batch = append(batch, p)
+					size += 2 + len(p)
 				case p := <-b.queue:
 					b.took(p)
+					if b.strictBatch && size+2+len(p) > b.maxBatchBytes {
+						carry = p
+						break linger
+					}
 					batch = append(batch, p)
 					size += 2 + len(p)
 				case <-timer.C:
@@ -387,6 +522,7 @@ func (b *BatchedTransport) flushLoop() {
 		}
 		for b.running.Load() {
 			if err := b.Transport.Send(encoded); err == nil {
+				b.failingSince.Store(0)
 				if utils.DebugEnabled() {
 					utils.Debugf("[BATCH] flushLoop: batch sent OK")
 				}
@@ -401,10 +537,12 @@ func (b *BatchedTransport) flushLoop() {
 				break
 			} else {
 				b.recordSendError(err)
+				b.failingSince.CompareAndSwap(0, time.Now().UnixNano())
 			}
 			// Keep this batch ahead of later ones while the carrier is full or
-			// reconnecting. A finite wait avoids spinning on a nonblocking Send.
-			timer := time.NewTimer(10 * time.Millisecond)
+			// reconnecting. A finite wait avoids spinning on a nonblocking Send;
+			// a carrier that stays down is asked less and less often.
+			timer := time.NewTimer(retryWait(b.stuckFor()))
 			select {
 			case <-b.stopCh:
 				timer.Stop()

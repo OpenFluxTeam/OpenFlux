@@ -39,7 +39,7 @@ func loginCookie(typ string) string {
 	return ""
 }
 
-// signInTrack is what ObserveSignIns and NotifyCaptcha learned per transport.
+// signInTrack is what ObserveSignIns and NotifyPrompt learned per transport.
 type signInTrack struct {
 	mu          sync.Mutex
 	loginSince  map[string]time.Time // the transport reported a login wall
@@ -54,7 +54,7 @@ func (s *signInTrack) init() {
 	}
 }
 
-// noteLogin records a transport's "login required" report (NotifyCaptcha).
+// noteLogin records a transport's "login required" report (NotifyPrompt).
 func (m *Manager) noteLogin(name, reason string) {
 	if reason != "login" {
 		return

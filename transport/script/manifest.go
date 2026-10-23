@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/p1neappleXpress/OpenFlux/transport"
 )
 
 // Param describes one input a script transport asks the user for, or one
@@ -134,10 +136,21 @@ type Info struct {
 	HalfDuplex   bool
 	MinInterval  time.Duration
 	Params       []Param
+	// CarrierMTU is the IP packet size the tunnel runs over this transport, 0 = say nothing (the default: 1500).
+	// A carrier whose message is one datagram on the wire sets it so that a packet and the ~115 bytes the
+	// tunnel puts around it fit that datagram (transport.CarrierMTUer).
+	CarrierMTU int
+	// BatchBytes is the size the tunnel coalesces packets into before write(), 0 = the core's default; 4096
+	// or less is a hard limit (transport.BatchSizeHinter).
+	BatchBytes int
 	// CustomSettings: the script defines Transport.settings(values), a
 	// settings page of its own (see InspectSettings). Set by Inspect, not by
 	// info().
 	CustomSettings bool
+	// SetupWizard: the script defines Transport.setup(values), a setup wizard
+	// that needs the real host (sockets, httpserver), so an app runs it with
+	// StartSetup before any connection exists. Set by Inspect, not by info().
+	SetupWizard bool
 
 	// ScopeCookiesToParentDomain: when ApplyCookies (the generic Go-side
 	// CookieExchanger - see transport.go) applies externally-supplied
@@ -162,11 +175,6 @@ type Info struct {
 
 	// Auth is the sign-in the transport needs (see Auth); nil: none.
 	Auth *Auth
-
-	// BatchBytes asks the Session to coalesce packets into messages of up to
-	// this many bytes (transport.BatchSizeHinter): for a carrier limited by
-	// messages, not bytes (Mail.ru's chat: ~500 KB). 0: the default.
-	BatchBytes int
 }
 
 // rawInfo mirrors the JSON shape scripts return from info(); durations cross
@@ -180,13 +188,14 @@ type rawInfo struct {
 	Ordered                    bool    `json:"ordered"`
 	HalfDuplex                 bool    `json:"halfDuplex"`
 	MinIntervalMs              float64 `json:"minIntervalMs"`
+	CarrierMTU                 int     `json:"carrierMtu"`
+	BatchBytes                 int     `json:"batchBytes"`
 	Params                     []Param `json:"params"`
 	ScopeCookiesToParentDomain bool    `json:"scopeCookiesToParentDomain"`
 	HTTPMaxConnsPerHost        int     `json:"httpMaxConnsPerHost"`
 	HTTPMaxIdleConns           int     `json:"httpMaxIdleConns"`
 	HTTPIdleConnTimeoutMs      float64 `json:"httpIdleConnTimeoutMs"`
 	Auth                       *Auth   `json:"auth"`
-	BatchBytes                 int     `json:"batchBytes"`
 }
 
 func parseInfo(v goja.Value) (Info, error) {
@@ -207,6 +216,12 @@ func parseInfo(v goja.Value) (Info, error) {
 	if raw.Name == "" {
 		return Info{}, fmt.Errorf("Transport.info() must set `name`")
 	}
+	if raw.CarrierMTU != 0 && (raw.CarrierMTU < transport.MinCarrierMTU || raw.CarrierMTU > 65000) {
+		return Info{}, fmt.Errorf("Transport.info(): carrierMtu %d out of range (%d..65000)", raw.CarrierMTU, transport.MinCarrierMTU)
+	}
+	if raw.BatchBytes < 0 {
+		return Info{}, fmt.Errorf("Transport.info(): batchBytes %d is negative", raw.BatchBytes)
+	}
 	return Info{
 		Name:                       raw.Name,
 		Version:                    raw.Version,
@@ -216,12 +231,13 @@ func parseInfo(v goja.Value) (Info, error) {
 		Ordered:                    raw.Ordered,
 		HalfDuplex:                 raw.HalfDuplex,
 		MinInterval:                time.Duration(raw.MinIntervalMs * float64(time.Millisecond)),
+		CarrierMTU:                 raw.CarrierMTU,
+		BatchBytes:                 raw.BatchBytes,
 		Params:                     raw.Params,
 		ScopeCookiesToParentDomain: raw.ScopeCookiesToParentDomain,
 		HTTPMaxConnsPerHost:        raw.HTTPMaxConnsPerHost,
 		HTTPMaxIdleConns:           raw.HTTPMaxIdleConns,
 		HTTPIdleConnTimeout:        time.Duration(raw.HTTPIdleConnTimeoutMs * float64(time.Millisecond)),
 		Auth:                       raw.Auth,
-		BatchBytes:                 raw.BatchBytes,
 	}, nil
 }
