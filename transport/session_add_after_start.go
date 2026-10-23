@@ -45,14 +45,14 @@ func (s *Session) AddTransportPostStart(name string, raw Transport, secret, cont
 	// request.
 	link.classicEnc, link.classicCodec = nil, nil
 
+	// The receive chain goes up before the carrier starts: a frame landing
+	// in the gap between listener and callback is dropped silently.
+	link.batched.Receive(func(p []byte) { s.receive(link, p) })
 	// batched.Start starts raw through the encryption layer and the demux.
 	if err := link.batched.Start(); err != nil {
 		return fmt.Errorf("session: transport %q start: %w", name, err)
 	}
 	link.started = true
-	// Same receive path as the bootstrap transports: everything that
-	// arrives on this link goes through Session.receive.
-	link.batched.Receive(func(p []byte) { s.receive(link, p) })
 
 	s.mu.Lock()
 	s.links[name] = link
