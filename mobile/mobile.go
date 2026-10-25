@@ -213,7 +213,7 @@ func classicTransport(transportType, documentURL, encryptionSecret, codec, maxTo
 // listened on by an exit.
 func classicParams(transportType, documentURL, maxToken, maxUid string) map[string]interface{} {
 	params := map[string]interface{}{"token": maxToken, "uid": maxUid}
-	if transportType == "direct" {
+	if transportType == "direct" || transportType == "fluxfast" {
 		params["dial"] = documentURL
 		params["listen"] = documentURL
 	}

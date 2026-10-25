@@ -125,7 +125,8 @@ Linux-only, faster) backend and the macOS/Windows full-tunnel clients, and
 ## Highlights
 
 - **Pluggable native transports** - Yandex.Docs, Yandex Volga, Yandex Board,
-  MAX/OneMe, Cups.online, Mail.ru Docs, Direct.
+  MAX/OneMe, Cups.online, Mail.ru Docs, Direct, FluxFast (UDP).
+  See [docs/fluxfast.md](docs/fluxfast.md).
 - **Scripted transports** - a signed JS engine (`transport/script`, goja)
   for writing new transports without touching Go or rebuilding the core.
   See [docs/scripted-transports.md](docs/scripted-transports.md).

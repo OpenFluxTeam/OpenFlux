@@ -25,7 +25,7 @@ type ContextSource struct {
 // client); oneme has no URL.
 func contextURL(s ContextSource) bool {
 	switch s.Type {
-	case "cupsonline", "direct", "oneme":
+	case "cupsonline", "direct", "fluxfast", "oneme":
 		return false
 	}
 	return s.URL != "" && s.URL != ContextPlaceholder
@@ -95,7 +95,7 @@ func KDFContexts(explicit, globalURL string, specs []ContextSource) (primary str
 	byPriority := append([]ContextSource(nil), specs...)
 	sort.SliceStable(byPriority, func(i, j int) bool { return byPriority[i].Priority > byPriority[j].Priority })
 	for _, s := range byPriority {
-		if s.Type != "direct" && s.Type != "oneme" {
+		if s.Type != "direct" && s.Type != "fluxfast" && s.Type != "oneme" {
 			add(s.URL)
 		}
 	}

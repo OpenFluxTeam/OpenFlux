@@ -9,7 +9,7 @@ Any client works with either exit backend. `--mode` is chosen on the
 Client (any):  macOS (utun) / Linux / Windows / iOS (packet tunnel) / Android
                     |
                     v
-               Transport (Yandex.Docs / Volga / Board / MAX / Cups / Mail.ru / Direct / script)
+               Transport (Yandex.Docs / Volga / Board / MAX / Cups / Mail.ru / Direct / FluxFast / script)
                     |
                     v
                Exit node  -->  Internet
@@ -110,6 +110,7 @@ OpenFlux/
     encrypted.go                   # Optional AES-256-GCM wrapper
     session.go                     # Negotiated multi-transport session
     direct.go                      # Direct TCP transport
+    fluxfast.go                    # FluxFast UDP transport (see fluxfast.md)
     cookies.go, cookiestore.go     # Cookie exchange and persistence
     error_notifier.go              # Out-of-band errors (captcha, login)
     control/                       # Envelope and control messages

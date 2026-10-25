@@ -163,7 +163,8 @@ RST, которые локально генерирует ядро выходн�
 - **Подключаемые транспорты** - Yandex.Docs (WS), Yandex Volga (HTTP relay + WS),
   Yandex Board (WS), MAX/OneMe (WebRTC DataChannel), Cups.online
   (Centrifugo-комнаты), Mail.ru Docs (WS), Direct (прямое TCP до выходной
-  ноды, только в сессии).
+  ноды, только в сессии), FluxFast (UDP до выходной ноды, см.
+  [docs/fluxfast.md](docs/fluxfast.md)).
 - **Батчинг + zstd** - склеивает множество туннельных пакетов в одно
   транспортное сообщение. Меньше сообщений в канале, выше скорость. См.
   `transport/batched.go` и `transport/framing.go`.

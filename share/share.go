@@ -123,7 +123,7 @@ type Config struct {
 // own.
 var knownTypes = map[string]bool{
 	"yandex": true, "vyandex": true, "boards": true, "mailru": true,
-	"cupsonline": true, "avito": true, "direct": true, "telemost": true,
+	"cupsonline": true, "avito": true, "direct": true, "fluxfast": true, "telemost": true,
 }
 
 // Shareable reports whether a link can carry a carrier of this type that
@@ -133,7 +133,7 @@ func Shareable(typ string) bool {
 	if !knownTypes[typ] {
 		return false
 	}
-	return typ != "direct"
+	return typ != "direct" && typ != "fluxfast"
 }
 
 // Validate reports whether c describes something a client can connect with.
@@ -169,12 +169,12 @@ func (c *Config) Validate() error {
 			}
 			return linkError(CodeUnknownTransport, t.Type, fmt.Sprintf("share: unknown transport type %q", t.Type), nil)
 		}
-		if t.Type == "direct" {
+		if t.Type == "direct" || t.Type == "fluxfast" {
 			if t.Dial == "" {
-				return linkError(CodeDirectNoDial, "", "share: direct needs the exit's address", nil)
+				return linkError(CodeDirectNoDial, "", "share: "+t.Type+" needs the exit's address", nil)
 			}
 			if !c.Negotiate {
-				return linkError(CodeDirectNeedsSession, "", "share: direct only works in a negotiated session", nil)
+				return linkError(CodeDirectNeedsSession, "", "share: "+t.Type+" only works in a negotiated session", nil)
 			}
 		}
 	}

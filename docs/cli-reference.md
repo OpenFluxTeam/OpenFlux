@@ -12,7 +12,7 @@ with inline examples.
 |------|-------|---------|-------------|
 | `--role` | `-r` | `client` | `client` \| `exit` \| `bench-send` \| `bench-sink` |
 | `--inbound` | `-i` | (platform) | `tun` (macOS/Windows via Wintun) \| `socks5` |
-| `--transport` | `-t` | `yandex` | `yandex` \| `vyandex` \| `boards` \| `oneme` \| `cupsonline` \| `mailru` \| `direct` \| `script` |
+| `--transport` | `-t` | `yandex` | `yandex` \| `vyandex` \| `boards` \| `oneme` \| `cupsonline` \| `mailru` \| `direct` \| `fluxfast` \| `script` |
 | `--mode` | `-m` | `l3` | Exit-node mode: `l3` \| `l4`; client: `stream` (the mode without a server, with `--transport=cupsonline\|mailru`, `--inbound=tun` for the full tunnel - see [phpbox.md](phpbox.md)) |
 | `--codec` | `-c` | `batched` | `batched` \| `legacy` |
 | `--url` | `-u` | `http://#` | Document URL |
@@ -30,8 +30,8 @@ with inline examples.
 | `--negotiate` | | `false` | Authenticated session (both peers) |
 | `--max-packet-size` | | `65000` | Largest IPv4 packet in a session (1280..65000) |
 | `--transports` | | | Session transports with priorities, e.g. `direct:100,yandex:50` |
-| `--direct-dial` | | | Exit address for `direct` (client) |
-| `--direct-listen` | | | Listen address for `direct` (exit) |
+| `--direct-dial` | | | Exit address for `direct` / `fluxfast` (client) |
+| `--direct-listen` | | | Listen address for `direct` / `fluxfast` (exit) |
 | `--yandex-url`, `--vyandex-url`, `--boards-url`, `--mailru-url`, `--cupsonline-url` | | | Per-type document URL in a session |
 | `--yandex-cookies-file` | | | Netscape `cookies.txt` with a Yandex login, for `vyandex` |
 | `--oneme-token`, `--oneme-uid` | | | MAX credentials in a session |
@@ -42,7 +42,7 @@ with inline examples.
 | `--cookie-store` | | `./cookies-<transport>.json` | Cookie jar file |
 | `--ipc-socket` | | | Unix socket for the app (captcha requests, cookies) |
 | `--share` | | `false` | Exit: print an `openflux://` link and QR code for clients |
-| `--share-host` | | (first public IPv4) | Exit: address clients dial for `direct` in that link |
+| `--share-host` | | (first public IPv4) | Exit: address clients dial for `direct` / `fluxfast` in that link |
 | `--node-wizard` | | | Sole argument: run the JSON-over-stdio provisioning protocol instead of normal CLI startup - see [node-provisioning.md](node-provisioning.md) |
 | `--inspect-script` | | | `--inspect-script --data=<path> [--sig=<path>] [--pubkey=<hex>]`: verify and read a downloaded script transport, print a JSON trust report - see [scripted-transports.md](scripted-transports.md) |
 | `--parse-link` | | | `--parse-link <link\|->`: read an openflux:// link (`-`: from stdin) and print `{"config","context"}` or `{"error","code","param"}` as JSON |

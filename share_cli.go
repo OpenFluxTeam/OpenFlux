@@ -37,7 +37,7 @@ func shareConfig(specs []transportSpec, session bool, codec, secret, context, ho
 			t.Name = s.Name
 		}
 		switch s.Type {
-		case "direct":
+		case "direct", "fluxfast":
 			listen, _ := s.Params["listen"].(string)
 			_, port, err := net.SplitHostPort(listen)
 			if err != nil || host == "" {

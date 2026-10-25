@@ -16,6 +16,7 @@ engine for writing more without touching Go at all - see
 | `cupsonline` | Cups.online (Centrifugo rooms) | The exit prints a base64 room list; pass it to the client via `--url`. |
 | `mailru` | Mail.ru Docs (WebSocket) | Accepts a bare weblink (`AbCdEfGh1/IjKlMnOp2`) or a full `https://cloud.mail.ru/public/...` URL. |
 | `direct` | Plain TCP to the exit | Sessions only; needs the exit's port reachable from the client. |
+| `fluxfast` | UDP to the exit | Needs the exit's port reachable; rides a Session in the apps, the CLI also runs it alone. Lossy by design - the tunnel's inner TCP recovers; see [fluxfast.md](fluxfast.md). |
 | `script` | Signed JS (goja) transport | Sessions only (needs `--encryption-key-file`); see [scripted-transports.md](scripted-transports.md). |
 
 ```bash

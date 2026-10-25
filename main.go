@@ -274,7 +274,7 @@ func main() {
 
 	role := flag.String("role", roleClient, "client | exit | bench-send | bench-sink")
 	inbound := flag.String("inbound", "", "tun | socks5 (client only; default: tun on macOS, socks5 elsewhere)")
-	transportType := flag.String("transport", "yandex", "Transport type (yandex, vyandex, oneme, cupsonline, mailru, telemost)")
+	transportType := flag.String("transport", "yandex", "Transport type (yandex, vyandex, oneme, cupsonline, mailru, telemost, direct, fluxfast)")
 	lanesFlag := flag.Int("lanes", 0, "Exit with no --url: run N carriers of this transport as lanes of one stripe, each creating its own rooms (cupsonline, avito); with --url, a comma-separated list of links is striped the same way")
 	mode := flag.String("mode", "", "Exit-node mode: l3 (default; Linux as root, or Windows as Administrator with WinDivert) or l4 (works everywhere)")
 
@@ -284,7 +284,7 @@ func main() {
 	cookieStorePath := flag.String("cookie-store", "",
 		"Path to the cookie jar file. Default: ./cookies-<transport>.json in the current directory "+
 			"(./cookies-script-<name>.json for a script). "+
-			"Ignored for transports without cookies (direct, oneme).")
+			"Ignored for transports without cookies (direct, fluxfast, oneme).")
 	encryptionKeyFile := flag.String("encryption-key-file", "",
 		"Optional: encrypt the transport with AES-256-GCM using a shared secret read from this file. "+
 			"Both peers must use the same secret; unset means unencrypted, unchanged behavior")
@@ -297,8 +297,8 @@ func main() {
 	urlFile := flag.String("url-file", "", "Read --url from this file, so the document URL stays out of the process list and shell history")
 	flag.StringVar(&maxToken, "maxToken", "", "MAX Web token. If u use MAX transport")
 	flag.StringVar(&maxUid, "maxUid", "", "MAX call user id. If u use MAX transport")
-	directDial := flag.String("direct-dial", "", "DirectTransport: exit address to dial (client). Requires --encryption-key-file")
-	directListen := flag.String("direct-listen", "", "DirectTransport: local address to listen on (exit). Requires --encryption-key-file")
+	directDial := flag.String("direct-dial", "", "Direct/FluxFast: exit address to dial (client). Requires --encryption-key-file")
+	directListen := flag.String("direct-listen", "", "Direct/FluxFast: local address to listen on (exit). Requires --encryption-key-file")
 	transportsFlag := flag.String("transports", "",
 		"Comma-separated list of transports with priorities, e.g. "+
 			"\"direct:100,yandex:50\". If empty, --transport is used as a single transport.")
@@ -317,7 +317,7 @@ func main() {
 	scriptPubkey := flag.String("script-pubkey", "", "Hex-encoded ed25519 public key the script transport's signature is checked against")
 	scriptName := flag.String("script-name", "", "Carrier name for the script transport (default: the name in its own info())")
 	refusePeerLogin := flag.Bool("refuse-peer-login", false, "Exit: take no account sign-in (Yandex, Mail.ru login cookies) from clients over the Session; only the owner's push over SSH (node-install.sh set-cookies) changes it")
-	scriptAutoUpdate := flag.Bool("script-auto-update", false,"Node: keep .flux transports current and self-heal (check/apply auto-OK updates, roll back, hot-swap without a restart)")
+	scriptAutoUpdate := flag.Bool("script-auto-update", false, "Node: keep .flux transports current and self-heal (check/apply auto-OK updates, roll back, hot-swap without a restart)")
 	scriptUpdateChannel := flag.String("script-update-channel", "stable", "Node: update channel for --script-auto-update (stable | nightly)")
 	configPath := flag.String("config", "",
 		"Path to an OpenFlux .conf file. Command-line flags override values from the file.")
@@ -375,6 +375,7 @@ TRANSPORT  (single-transport mode)
   -t, --transport=telemost     Yandex Telemost conference (--url <link>), striped over several participants.
   -t, --transport=mailru       Mail.ru Docs over WebSocket.
   -t, --transport=direct       Plain TCP to a self-hosted exit.
+  -t, --transport=fluxfast     UDP to a self-hosted exit (own reliability).
   -t, --transport=script       A signed JS (goja) transport. Session only
                                (needs --encryption-key-file): see --script-*.
   -u, --url=<URL>              Document URL.
@@ -399,8 +400,8 @@ TRANSPORTS  (multi-transport session; requires --encryption-key-file)
                                cookies.txt for code.avito.ru.
       --oneme-token=<token>    MAX auth token for the oneme transport.
       --oneme-uid=<uid>        MAX user id for the oneme transport.
-      --direct-dial=<addr>     DirectTransport: exit host:port (client).
-      --direct-listen=<addr>   DirectTransport: listen addr on exit.
+      --direct-dial=<addr>     Direct/FluxFast: exit host:port (client).
+      --direct-listen=<addr>   Direct/FluxFast: listen addr on exit.
       --script-path=<path>     Script transport: path to <name>.flux or
                                <name>.js (needs <name>.js.sig beside a bare
                                .js). Also used with --transport=script.
@@ -572,11 +573,17 @@ DEPRECATED (removed in v2)
 			if spec.Type == "" {
 				spec.Type = t.Name
 			}
-			if spec.Type == "direct" {
+			if spec.Type == "direct" || spec.Type == "fluxfast" {
 				spec.Params = map[string]interface{}{
 					"dial":    t.Values["Dial"],
 					"listen":  t.Values["Listen"],
 					"is_exit": isExit,
+				}
+				if v := t.Values["Chunk"]; v != "" {
+					spec.Params["chunk"] = v
+				}
+				if v := t.Values["MTU"]; v != "" {
+					spec.Params["mtu"] = v
 				}
 				if v := t.Values["Prefer"]; v != "" {
 					spec.Params["prefer"] = confBool(v, true)
@@ -876,6 +883,11 @@ DEPRECATED (removed in v2)
 				"listen":  *directListen,
 				"is_exit": isExit,
 			},
+			"fluxfast": {
+				"dial":    *directDial,
+				"listen":  *directListen,
+				"is_exit": isExit,
+			},
 			"script": {"path": *scriptPath, "pubkey": *scriptPubkey, "name": *scriptName},
 		}
 		specs = buildTransportSpecs(parsed, urls, extra)
@@ -893,7 +905,7 @@ DEPRECATED (removed in v2)
 				"token": maxToken, "uid": maxUid, "exit": isExit,
 			}
 		}
-		if *transportType == "direct" {
+		if *transportType == "direct" || *transportType == "fluxfast" {
 			specs[0].Params = map[string]interface{}{
 				"dial": *directDial, "listen": *directListen, "is_exit": isExit,
 			}
@@ -977,6 +989,12 @@ DEPRECATED (removed in v2)
 	// A classic setup (--transport=X) with a key runs as a Session too,
 	// with classic compatibility (see classicCompatible).
 	configuredSession := *negotiate || *transportsFlag != "" || len(confTransports) > 0
+	// The carrier wraps nothing: without a key the datagrams are plain UDP on
+	// the wire. The apps refuse that too (mobile/ios/packet.go), so the CLI
+	// does not quietly offer an unencrypted tunnel that looks like a private one.
+	if *transportType == "fluxfast" && !configuredSession && secret == "" {
+		log.Fatal("--transport=fluxfast needs --encryption-key-file: the carrier is neither encrypted nor authenticated")
+	}
 	classicCompat := classicCompatible(*role, configuredSession, *negotiate, secret != "", len(specs))
 	if configuredSession || classicCompat {
 		if secret == "" {
@@ -1093,12 +1111,17 @@ DEPRECATED (removed in v2)
 		// Session needs one), or a bench role.
 		// The types the classic path serves; the registry builds them.
 		switch *transportType {
-		case "boards", "vyandex", "yandex", "oneme", "cupsonline", "avito", "mailru", "telemost", "mixed":
+		case "boards", "vyandex", "yandex", "oneme", "cupsonline", "avito", "mailru", "telemost", "mixed", "fluxfast":
 		default:
 			log.Fatalf("Unknown transport type: %s", *transportType)
 		}
+		classic := classicParams(maxToken, maxUid, isExit, *lanesFlag)
+		if *transportType == "fluxfast" {
+			classic["dial"] = *directDial
+			classic["listen"] = *directListen
+		}
 		inner, err := registry.New(*transportType, globalDocUrl,
-			classicParams(maxToken, maxUid, isExit, *lanesFlag),
+			classic,
 			registry.Options{Base: config, IsExit: isExit, YandexCookiesFile: yandexCookiesFile, AvitoCookies: avitoCookiesStr, ScriptDir: nativeScriptsDir})
 		if err != nil {
 			log.Fatalf("%s: %v", *transportType, err)
