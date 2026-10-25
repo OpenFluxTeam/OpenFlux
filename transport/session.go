@@ -46,6 +46,9 @@ type Session struct {
 	links map[string]*transportLink
 	order []string
 
+	// pinned is the carrier the user chose to send through (SetPinnedCarrier); "" lets the priorities decide.
+	pinned string
+
 	dataCallback    func([]byte)
 	controlCallback ControlHandler
 
@@ -698,6 +701,9 @@ func (s *Session) keepaliveLoop() {
 		if s.ready {
 			for _, name := range s.order {
 				l := s.links[name]
+				if s.pinned != "" && name != s.pinned {
+					continue // the peer lets a carrier nobody pings fall silent, and stops answering on it
+				}
 				if l.started && !l.dead && time.Since(l.lastHeard) >= s.keepaliveInterval {
 					quiet = append(quiet, l)
 				}
@@ -1134,6 +1140,13 @@ func (s *Session) send(p []byte, raw []byte) error {
 // so sending is still tried rather than refused.
 // Caller holds s.mu.
 func (s *Session) liveLinksLocked() []*transportLink {
+	if s.pinned != "" {
+		// The user's choice: this carrier or nothing, so a test of one carrier is not carried by another.
+		if l := s.links[s.pinned]; l != nil && s.connectedLocked(l) {
+			return []*transportLink{l}
+		}
+		return nil
+	}
 	out := make([]*transportLink, 0, len(s.links))
 	for _, name := range s.order {
 		if l := s.links[name]; s.heardLocked(l) {
@@ -1749,4 +1762,33 @@ func (s *Session) nudge(link *transportLink, send bool) {
 	if err := s.helloVia(link.name); err != nil {
 		utils.Debugf("[SESSION] hello nudge via %q: %v", link.name, err)
 	}
+}
+
+// SetPinnedCarrier makes the Session send only through the carrier called name (one of CarrierNames), whatever the
+// priorities say; "" gives the choice back to them. The peer follows by itself: it stops hearing the others and
+// moves off them within a link timeout. It reports whether name is a carrier of this Session (always true for "").
+func (s *Session) SetPinnedCarrier(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name != "" {
+		if _, ok := s.links[name]; !ok {
+			return false
+		}
+	}
+	s.pinned = name
+	return true
+}
+
+// PinnedCarrier is the carrier SetPinnedCarrier chose, "" for none.
+func (s *Session) PinnedCarrier() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pinned
+}
+
+// CarrierNames lists the Session's carriers, highest priority first.
+func (s *Session) CarrierNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.order...)
 }
