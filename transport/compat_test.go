@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -334,41 +333,33 @@ func TestSessionClassicYieldsToSession(t *testing.T) {
 	})
 }
 
+// The KDF context no longer encodes the channel: an explicit context (shared
+// out of band, so it cannot diverge) is honoured, everything else collapses to
+// the one fixed ContextPlaceholder, and there is never any context cycling.
+// See KDFContexts and the handshake-challenge salt in epoch.go.
 func TestKDFContextsRule(t *testing.T) {
 	cases := []struct {
 		name, explicit, url string
 		specs               []ContextSource
 		want                string
 	}{
-		{"explicit", "x", "https://u", nil, "x"},
-		{"--url", "", "https://u", []ContextSource{{Type: "mailru", URL: "https://m"}}, "https://u"},
-		{"highest priority", "", ContextPlaceholder, []ContextSource{
-			{Type: "mailru", URL: "https://m", Priority: 10}, {Type: "vyandex", URL: "https://v", Priority: 100}}, "https://v"},
-		{"classic cups rooms as --url", "", "rooms", []ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder},
-		{"direct address", "", ContextPlaceholder, []ContextSource{{Type: "direct", URL: "1.2.3.4:9443"}}, ContextPlaceholder},
+		{"explicit honoured", "x", "https://u", nil, "x"},
+		{"explicit beats everything", "shared-link-ctx", "https://u",
+			[]ContextSource{{Type: "mailru", URL: "https://m", Priority: 100}}, "shared-link-ctx"},
+		{"no explicit: url ignored, fixed placeholder", "", "https://u",
+			[]ContextSource{{Type: "mailru", URL: "https://m"}}, ContextPlaceholder},
+		{"no explicit: highest-priority spec ignored", "", ContextPlaceholder,
+			[]ContextSource{{Type: "vyandex", URL: "https://v", Priority: 100}}, ContextPlaceholder},
+		{"cups room list never leaks into the context", "", "rooms",
+			[]ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder},
 	}
 	for _, c := range cases {
 		got, alts := KDFContexts(c.explicit, c.url, c.specs)
 		if got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
-		for _, a := range alts {
-			if a == got {
-				t.Errorf("%s: primary repeated among alternates", c.name)
-			}
+		if len(alts) != 0 {
+			t.Errorf("%s: context cycling is gone — want no alternates, got %q", c.name, alts)
 		}
 	}
-	_, alts := KDFContexts("", "rooms", []ContextSource{{Type: "cupsonline", URL: "rooms"}})
-	if !bytes.Contains([]byte(joinStrings(alts)), []byte("rooms")) {
-		t.Errorf("old classic cups context missing from alternates %q", alts)
-	}
-}
-
-func joinStrings(s []string) string {
-	var b bytes.Buffer
-	for _, x := range s {
-		b.WriteString(x)
-		b.WriteByte('|')
-	}
-	return b.String()
 }

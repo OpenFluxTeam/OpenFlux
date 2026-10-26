@@ -197,10 +197,11 @@ func TransportURL(ts []ChannelTransport, typ string) string {
 	return ""
 }
 
-// SessionContext is the encryption context both sides of the channel
-// derive, by the core's one rule (transport.KDFContexts): the
-// highest-priority document, cups.online aside (its rooms are no
-// document). node-install.sh's session_context picks the same.
+// SessionContext is the encryption context both sides of the channel derive,
+// by the core's one rule (transport.KDFContexts). With no explicit context
+// that rule is now the one fixed placeholder — the documents no longer decide
+// it, so two peers cannot disagree; node-install.sh's session_context picks
+// the same.
 func SessionContext(ts []ChannelTransport) string {
 	sources := make([]transport.ContextSource, 0, len(ts))
 	for _, t := range ts {

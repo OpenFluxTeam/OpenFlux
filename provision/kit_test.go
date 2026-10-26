@@ -162,8 +162,8 @@ func TestKitCarriersAreTheClientsProfile(t *testing.T) {
 			t.Errorf("transport %d = %+v, want %+v", i, kit.Transports[i], want[i])
 		}
 	}
-	if kit.Context != "https://cloud.mail.ru/public/aaaa/bbbb" {
-		t.Errorf("context = %q: the document's, as the installer derives it", kit.Context)
+	if kit.Context != "http://#" {
+		t.Errorf("context = %q: the fixed placeholder, as the installer derives it", kit.Context)
 	}
 	// MAX alone has no document: the placeholder both ends derive
 	only := kitChannel(t)

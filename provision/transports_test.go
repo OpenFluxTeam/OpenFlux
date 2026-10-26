@@ -59,18 +59,18 @@ func TestCheckTransportsRefuses(t *testing.T) {
 	}
 }
 
-func TestSessionContextPicksTheTopDocument(t *testing.T) {
-	for _, c := range []struct {
-		ts   []ChannelTransport
-		want string
-	}{
-		{[]ChannelTransport{{Type: "vyandex", URL: testVolga}, {Type: "mailru", URL: testMailru}}, testVolga},
-		{[]ChannelTransport{{Type: "cupsonline", URL: testRooms}, {Type: "mailru", URL: testMailru}}, testMailru},
-		{[]ChannelTransport{{Type: "cupsonline", URL: testRooms}}, "http://#"},
-		{nil, "http://#"},
+// Without an explicit context every channel uses the one fixed placeholder:
+// the documents no longer decide the context, so two peers cannot disagree
+// over it. See transport.KDFContexts.
+func TestSessionContextIsFixed(t *testing.T) {
+	for _, ts := range [][]ChannelTransport{
+		{{Type: "vyandex", URL: testVolga}, {Type: "mailru", URL: testMailru}},
+		{{Type: "cupsonline", URL: testRooms}, {Type: "mailru", URL: testMailru}},
+		{{Type: "cupsonline", URL: testRooms}},
+		nil,
 	} {
-		if got := SessionContext(c.ts); got != c.want {
-			t.Errorf("SessionContext(%+v) = %q, want %q", c.ts, got, c.want)
+		if got := SessionContext(ts); got != "http://#" {
+			t.Errorf("SessionContext(%+v) = %q, want the fixed placeholder", ts, got)
 		}
 	}
 }
@@ -85,7 +85,7 @@ func TestShareLinkCarriesTheChosenTransports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Negotiate || c.Secret != key || c.Context != testMailru || c.Name != "Нода" {
+	if !c.Negotiate || c.Secret != key || c.Context != "http://#" || c.Name != "Нода" {
 		t.Fatalf("link: %+v", c)
 	}
 	want := []share.Transport{
@@ -169,8 +169,9 @@ func TestCheckTransportsYandexDocsAndBoards(t *testing.T) {
 	if _, err := CheckTransports([]ChannelTransport{{Type: "yandex", URL: "https://disk.yandex.ru/i/AbCdEf123"}}); err != nil {
 		t.Fatalf("public disk link: %v", err)
 	}
-	// A channel of a board alone derives its context from the board.
-	if c := SessionContext([]ChannelTransport{{Type: "boards", URL: board}}); c != board {
+	// The context no longer comes from the documents: a board-only channel
+	// uses the fixed placeholder like every other (transport.KDFContexts).
+	if c := SessionContext([]ChannelTransport{{Type: "boards", URL: board}}); c != "http://#" {
 		t.Fatalf("board context %q", c)
 	}
 }
