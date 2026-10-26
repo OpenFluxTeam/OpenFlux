@@ -23,7 +23,6 @@ import (
 	"unsafe"
 
 	"github.com/p1neappleXpress/OpenFlux/network"
-	"github.com/p1neappleXpress/OpenFlux/transport"
 	"github.com/p1neappleXpress/OpenFlux/utils"
 	mobile "openflux-mobile"
 )
@@ -59,7 +58,6 @@ func extensionLimits() {
 	debug.SetMemoryLimit(24 << 20)
 	debug.SetGCPercent(80)
 	mobile.SetLowMemory(true)
-	transport.EagerKDF.Store(true)
 	// SetMemoryLimit bounds only the Go heap; jetsam kills by RSS. Under
 	// load the freed heap has to go back to the OS or RSS keeps growing
 	// (a speed test ended the extension, a captcha hand-off failed):

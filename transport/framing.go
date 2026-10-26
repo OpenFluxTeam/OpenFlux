@@ -39,9 +39,9 @@ func init() {
 	//
 	// The window is 1 MB, not the default 8 MB: the first EncodeAll allocates
 	// a history of twice the window, so the default cost 16 MB per encoder at
-	// once - enough to push the iOS Network Extension past its 50 MB cap on
-	// the first packet. A batch is far smaller than 1 MB, so the ratio is
-	// unchanged, and any decoder takes any window.
+	// once - a third of the iOS Network Extension's 50 MB. A frame is at most
+	// maxFrameBytes (1 MB), so the ratio is unchanged, and any decoder takes
+	// any window.
 	zstdEnc, err = zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.SpeedDefault),
 		zstd.WithEncoderConcurrency(1),
