@@ -19,13 +19,13 @@ type ContextSource struct {
 }
 
 // contextURL reports whether a carrier's URL can name the channel. A
-// cupsonline "URL" is the room list its exit creates at start, so the exit
-// cannot know it beforehand; direct carries host:port, which differs between
+// cupsonline or avito "URL" is the room list its exit creates at start, so
+// the exit cannot know it beforehand; direct carries host:port, which differs between
 // the two sides (0.0.0.0:port on the exit, the public address on the
 // client); oneme has no URL.
 func contextURL(s ContextSource) bool {
 	switch s.Type {
-	case "cupsonline", "direct", "oneme":
+	case "cupsonline", "avito", "direct", "oneme":
 		return false
 	}
 	return s.URL != "" && s.URL != ContextPlaceholder
@@ -51,11 +51,11 @@ func contextURL(s ContextSource) bool {
 func KDFContexts(explicit, globalURL string, specs []ContextSource) (primary string, alternates []string) {
 	cups := false
 	for _, s := range specs {
-		if s.Type == "cupsonline" && s.URL != "" && s.URL == globalURL {
+		if (s.Type == "cupsonline" || s.Type == "avito") && s.URL != "" && s.URL == globalURL {
 			cups = true
 		}
 	}
-	if len(specs) == 1 && specs[0].Type == "cupsonline" {
+	if len(specs) == 1 && (specs[0].Type == "cupsonline" || specs[0].Type == "avito") {
 		cups = true
 	}
 	switch {
