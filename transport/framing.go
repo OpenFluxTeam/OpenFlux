@@ -36,9 +36,17 @@ func init() {
 	// SpeedDefault (~level 3): far better ratio than LZ4 at a CPU cost that is
 	// irrelevant next to the Yandex channel's latency. Single-shot EncodeAll /
 	// DecodeAll are safe for concurrent use on a shared instance.
+	//
+	// The window is 1 MB, not the default 8 MB: the first EncodeAll allocates
+	// a history of twice the window, so the default cost 16 MB per encoder at
+	// once - enough to push the iOS Network Extension past its 50 MB cap on
+	// the first packet. A batch is far smaller than 1 MB, so the ratio is
+	// unchanged, and any decoder takes any window.
 	zstdEnc, err = zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.SpeedDefault),
 		zstd.WithEncoderConcurrency(1),
+		zstd.WithWindowSize(1<<20),
+		zstd.WithLowerEncoderMem(true),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("zstd encoder init: %v", err))
@@ -46,6 +54,8 @@ func init() {
 	zstdEncFast, err = zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.SpeedFastest),
 		zstd.WithEncoderConcurrency(1),
+		zstd.WithWindowSize(1<<20),
+		zstd.WithLowerEncoderMem(true),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("zstd fast encoder init: %v", err))

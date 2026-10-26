@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -144,6 +145,9 @@ func NewEncryptedTransport(inner Transport, secret, context string, exitNode boo
 		st.side, st.sendDir, st.recvDir = "EXIT", 1, 0
 	}
 	k, err := st.derive(context)
+	if EagerKDF.Load() {
+		debug.FreeOSMemory() // the 32 MiB of scrypt, before the carriers start
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -188,8 +192,45 @@ func (e *EncryptedTransport) SetAlternateContexts(contexts []string) {
 			st.pending = append(st.pending, c)
 		}
 	}
-	if len(st.pending) > 0 {
-		utils.Debugf("[CRYPTO] side=%s %d alternate KDF context(s) on standby (derived on demand)", st.side, len(st.pending))
+	if len(st.pending) == 0 {
+		return
+	}
+	if EagerKDF.Load() {
+		st.mu.Unlock()
+		st.deriveNow()
+		st.mu.Lock()
+		return
+	}
+	utils.Debugf("[CRYPTO] side=%s %d alternate KDF context(s) on standby (derived on demand)", st.side, len(st.pending))
+}
+
+// EagerKDF derives the alternate contexts as soon as they are set, one at a
+// time, handing each scrypt run's 32 MiB back to the OS before the next.
+// For the iOS Network Extension (50 MB cap): on demand they ran once the
+// carriers were up and the extension already held ~20 MB, and the 32 MiB on
+// top got it killed whenever the exit was slow to answer.
+var EagerKDF atomic.Bool
+
+// deriveNow derives the pending candidates on the caller's goroutine.
+func (st *keyStore) deriveNow() {
+	for {
+		st.mu.Lock()
+		if len(st.pending) == 0 {
+			st.mu.Unlock()
+			return
+		}
+		c := st.pending[0]
+		st.pending = st.pending[1:]
+		st.mu.Unlock()
+		k, err := st.derive(c)
+		debug.FreeOSMemory()
+		if err != nil {
+			utils.Debugf("[CRYPTO] derive alternate context %q: %v", c, err)
+			continue
+		}
+		st.mu.Lock()
+		st.keys = append(st.keys, k)
+		st.mu.Unlock()
 	}
 }
 
