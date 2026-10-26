@@ -259,6 +259,28 @@ func IsConnected() bool {
 	return trans != nil && trans.IsConnected()
 }
 
+// CarrierMTU is the largest IPv4 packet the current carriers move whole, so
+// the embedding app can size its TUN interface to it instead of a fixed,
+// conservative value. A direct TCP carrier moves a 16 KB packet as cheaply as
+// a 1.5 KB one, and a larger MTU divides the per-packet work of the whole
+// pipeline (JNI crossings, AES, framing, TUN syscalls) across far fewer
+// packets; a datagram carrier that declares a smaller MTU reports that
+// instead, so no record is cut on the wire. Returns transport.DefaultCarrierMTU
+// before a carrier is up or when the transport reports nothing. The app reads
+// it once the session is connected and (re)establishes its TUN at this size;
+// see the Android AndroidConnectionService.
+func CarrierMTU() int {
+	client.mu.Lock()
+	trans := client.transport
+	client.mu.Unlock()
+	if m, ok := trans.(interface{ CarrierMTU() int }); ok {
+		if n := m.CarrierMTU(); n >= transport.MinCarrierMTU {
+			return n
+		}
+	}
+	return transport.DefaultCarrierMTU
+}
+
 func Send(packet []byte) string {
 	client.mu.Lock()
 	trans := client.transport
