@@ -21,6 +21,7 @@ import (
 	"github.com/p1neappleXpress/OpenFlux/transport/mailru"
 	"github.com/p1neappleXpress/OpenFlux/transport/oneme"
 	"github.com/p1neappleXpress/OpenFlux/transport/script"
+	"github.com/p1neappleXpress/OpenFlux/transport/vkteams"
 	"github.com/p1neappleXpress/OpenFlux/transport/yandex"
 )
 
@@ -50,7 +51,7 @@ type Options struct {
 // existed; moving every user-facing word out of the core is a separate step.
 
 // Types are the transport types New accepts, in the order the apps list them.
-var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "avito", "telemost", "oneme", "direct", "script"}
+var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "avito", "telemost", "vkteams", "oneme", "direct", "script"}
 
 // New builds the raw carrier of the given type. params carries what a type
 // needs beyond its url: "token"/"uid" (and "exit") for oneme, "dial"/"listen"
@@ -102,6 +103,8 @@ func New(typ, url string, params map[string]interface{}, o Options) (transport.T
 		return oneme.NewOneMeTransport(roleParam(params, "exit", o.IsExit), str("token"), uid, base), nil
 	case "telemost":
 		return newTelemost(url, params, o), nil
+	case "vkteams":
+		return newVKTeams(url, params, o)
 	case "script":
 		return newScript(url, params, o)
 	case "direct":
@@ -168,6 +171,44 @@ const (
 	telemostLanes    = 3
 	telemostMaxLanes = 6
 )
+
+// newVKTeams builds the VK Teams carrier: a VK Teams call whose TURN relay
+// carries the tunnel as RTP media (the Telemost technique applied to VK's own
+// videowebrtc). params:
+//
+//	"stripes"     "auto" (default; starts at 3) or a fixed lane count
+//	"stripes_max" upper bound for auto (default 11)
+//	"force_relay" "true" (default) to force ICE relay mode
+func newVKTeams(code string, params map[string]interface{}, o Options) (transport.Transport, error) {
+	str := func(key string) string {
+		switch v := params[key].(type) {
+		case string:
+			return v
+		case float64:
+			return strconv.Itoa(int(v))
+		case int:
+			return strconv.Itoa(v)
+		}
+		return ""
+	}
+	n, auto := 3, true
+	st := str("stripes")
+	if st != "" && st != "auto" {
+		if v, err := strconv.Atoi(st); err == nil && v >= 1 {
+			n, auto = v, false
+		}
+	}
+	maxLanes, _ := strconv.Atoi(str("stripes_max"))
+	if maxLanes < n {
+		maxLanes = 11
+	}
+	forceRelay := roleParam(params, "force_relay", true)
+	g, err := vkteams.NewGroup(code, o.IsExit, forceRelay, n, o.Base)
+	if err != nil {
+		return nil, fmt.Errorf("vkteams: %w", err)
+	}
+	return transport.NewStripedTransportAuto(g.Lanes(), g, maxLanes, auto), nil
+}
 
 // roleParam reads a role flag a profile may carry as a bool or as "true".
 func roleParam(params map[string]interface{}, key string, def bool) bool {

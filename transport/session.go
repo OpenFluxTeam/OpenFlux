@@ -1763,7 +1763,6 @@ func (s *Session) nudge(link *transportLink, send bool) {
 		utils.Debugf("[SESSION] hello nudge via %q: %v", link.name, err)
 	}
 }
-
 // SetPinnedCarrier makes the Session send only through the carrier called name (one of CarrierNames), whatever the
 // priorities say; "" gives the choice back to them. The peer follows by itself: it stops hearing the others and
 // moves off them within a link timeout. It reports whether name is a carrier of this Session (always true for "").
