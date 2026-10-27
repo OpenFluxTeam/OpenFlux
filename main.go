@@ -1343,9 +1343,9 @@ func runExit(trans transport.Transport, exitMode tunnel.ExitMode) {
 // streamCarrier builds the carrier the stream mux rides.
 func streamCarrier(transportType, url string) phpbox.Carrier {
 	switch transportType {
-	case "cupsonline", "yandex", "", "vyandex", "mailru":
+	case "cupsonline", "avito", "yandex", "", "vyandex", "mailru":
 	default:
-		log.Fatalf("--mode=stream: transport %q not supported (use cupsonline, yandex, vyandex, mailru)", transportType)
+		log.Fatalf("--mode=stream: transport %q not supported (use cupsonline, avito, yandex, vyandex, mailru)", transportType)
 	}
 	t, err := registry.New(transportType, url, nil, registry.Options{
 		Base: transport.DefaultConfig(), YandexCookiesFile: yandexCookiesFile, AvitoCookies: avitoCookiesStr,
