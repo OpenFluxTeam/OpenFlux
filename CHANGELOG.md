@@ -3,6 +3,48 @@
 All notable changes to the OpenFlux core. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] / node-v1.7.3 - 2026-10-28 (OpenFluxTeam/OpenFlux)
+
+node-install.sh still installs **node-v1.7.3** (the binary is unchanged). This release continues the
+p1neappleXpress core line; it does not include the FluxFast carrier or the new script host from the
+`feat/fluxfast-core` branch.
+
+### Added
+
+- **Carriers declare their packet and batch size, and the tunnel sizes to them.** `mobile` exposes `CarrierMTU` so
+  the TUN interface sizes itself to the active carriers; a carrier can declare a packet size below 1280 and a batch
+  size that is a hard limit; packets from the device honour the carrier's packet size, and the L3 return path honours
+  the carrier's limit and cuts what offload merged. Control frames no longer wait behind a carrier that is taking
+  nothing.
+- **The SCTP/WebRTC path respects the carrier MTU.** A fork of pion/sctp lets the MTU setter override the Config
+  (pion/webrtc asks for 1191 in every association); the WebRTC script transport gains an ordered receive, a pacer and
+  a backlog cap, and reports `carrierMtu`/`batchBytes` from `info()`.
+- **Carrier links and a pin for the UI.** The app can show the carrier links and pin one; a pinned carrier bypasses
+  priority selection.
+- **phpbox: an Avito ShareDB exit and node self-revival.** `--mode=stream` runs an exit over Avito's ShareDB, and a
+  node can revive itself through a screenshot service.
+- **Setup wizards for transports.** `Transport.setup` runs a setup session (a wizard with the real host) before any
+  connection exists; a node's kit installs a channel as a script the person runs by hand; setup-page submissions are
+  delivered to the exit scoped `{client, node}`; an own page can ask the app for a sign-in window
+  (`window.openfluxLogin`).
+
+### Changed
+
+- **The KDF encryption context is pinned, with the pre-pin contexts kept as legacy alternates.** The primary context
+  is now the explicit string (from `--session-context` or an `openflux://` link) or the one fixed placeholder, so two
+  up-to-date peers never diverge and the context-divergence handshake failures end. The pre-pin contexts (derived from
+  the carrier URLs and transport names) are offered as alternates: a receiver that cannot authenticate a packet under
+  the primary tries them, and the sender rotates through them while the peer is silent, so builds still deployed in the
+  field keep interoperating. Interoperates both ways with core v0.16.0.
+- **captcha → prompt** across the transport API (`TransportPrompt`, `PendingPromptOwn`, `NotifyPrompt`).
+
+### Fixed
+
+- **direct: an exit hands a client's new connection over from a quiet one** instead of waiting minutes on it; the
+  takeover thresholds are the transport's own (so a test can shorten them). Outside Linux the carrier socket gets a
+  4 MiB send buffer (on a 72 ms path an upload that had settled at 8-40 Mbit/s now holds 40-60).
+- **stripe: a lane's window counts only the pieces really in flight on it.**
+
 ## [0.14.5] / node-v1.7.3 - 2026-10-18 (OpenFluxTeam/OpenFlux)
 
 node-install.sh still installs **node-v1.7.3** (the binary is unchanged).
