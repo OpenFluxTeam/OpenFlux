@@ -941,7 +941,9 @@ func CreateRoomList(ctx context.Context, cookies string) (string, error) {
 	for i := 0; i < total; i++ {
 		id, err := createRoom(ctx, cookies)
 		if err != nil {
-			if len(ids) > 0 {
+			// What was made so far is a list when it holds a pair (a room to send in, a room to hear in);
+			// fewer starts no lane, and the list would be restarted for good.
+			if len(ids) >= 2 {
 				break
 			}
 			return "", err
