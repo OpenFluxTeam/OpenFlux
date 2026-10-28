@@ -3,6 +3,23 @@
 All notable changes to the OpenFlux core. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.1] / node-v1.7.3 - 2026-10-29 (OpenFluxTeam/OpenFlux)
+
+node-install.sh still installs **node-v1.7.3** (the binary is unchanged). A micro-release off the
+nightly line that pins a measured throughput default for the real-time media carrier before anything
+else moves it.
+
+### Changed
+
+- **The real-time media carrier asks the SFU for a full-stream slot by default.** The old slot default
+  told the SFU it was rendering into a thumbnail, so the SFU happily capped the forwarded bitrate at a
+  few hundred Kbps per lane regardless of what the publisher was sending. Measured in the same room
+  on 2026-10-28: single-stream 0.45 MB/s at the old default and 1.15 MB/s at 1920×1080, a 2.44x win
+  with no downside for a pure tunnel (we render nothing). The user confirmed 1.4 MB/s on-device
+  through the carrier. The first two slots - the ones the SFU actually forwards our stream to - now
+  request 1920×1080 so we take up to the ~2 Mbps per-slot cap. The trailing slots stay small
+  (idle-slot hints). `TELEMOST_SLOT_W`/`TELEMOST_SLOT_H` still override this for custom benches.
+
 ## [0.17.0] / node-v1.7.3 - 2026-10-28 (OpenFluxTeam/OpenFlux)
 
 node-install.sh still installs **node-v1.7.3** (the binary is unchanged). This release continues the
