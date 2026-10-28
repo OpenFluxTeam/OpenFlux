@@ -333,33 +333,61 @@ func TestSessionClassicYieldsToSession(t *testing.T) {
 	})
 }
 
-// The KDF context no longer encodes the channel: an explicit context (shared
-// out of band, so it cannot diverge) is honoured, everything else collapses to
-// the one fixed ContextPlaceholder, and there is never any context cycling.
-// See KDFContexts and the handshake-challenge salt in epoch.go.
+// The KDF PRIMARY is pinned: an explicit context (shared out of band, so it
+// cannot diverge) is honoured, everything else collapses to the one fixed
+// ContextPlaceholder, and a cups room list never becomes the primary. On top
+// of that the LEGACY derivation is offered as alternates, so a peer from a
+// pre-pin build (whose primary is a URL / room list) is still reached — the
+// context an old build would have used first, then the placeholder, --url, the
+// carrier URLs and the transport names. See KDFContexts, EncryptedTransport,
+// and the per-session hello challenges in control/control.go.
 func TestKDFContextsRule(t *testing.T) {
 	cases := []struct {
 		name, explicit, url string
 		specs               []ContextSource
 		want                string
+		wantAlts            []string
 	}{
-		{"explicit honoured", "x", "https://u", nil, "x"},
+		{"explicit honoured", "x", "https://u", nil, "x",
+			[]string{ContextPlaceholder, "https://u"}},
 		{"explicit beats everything", "shared-link-ctx", "https://u",
-			[]ContextSource{{Type: "mailru", URL: "https://m", Priority: 100}}, "shared-link-ctx"},
-		{"no explicit: url ignored, fixed placeholder", "", "https://u",
-			[]ContextSource{{Type: "mailru", URL: "https://m"}}, ContextPlaceholder},
-		{"no explicit: highest-priority spec ignored", "", ContextPlaceholder,
-			[]ContextSource{{Type: "vyandex", URL: "https://v", Priority: 100}}, ContextPlaceholder},
-		{"cups room list never leaks into the context", "", "rooms",
-			[]ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder},
+			[]ContextSource{{Type: "mailru", URL: "https://m", Priority: 100}}, "shared-link-ctx",
+			[]string{ContextPlaceholder, "https://u", "https://m", "mailru"}},
+		{"no explicit: placeholder primary, url is a legacy alternate", "", "https://u",
+			[]ContextSource{{Type: "mailru", URL: "https://m"}}, ContextPlaceholder,
+			[]string{"https://u", "https://m", "mailru"}},
+		{"no explicit: highest-priority spec is a legacy alternate", "", ContextPlaceholder,
+			[]ContextSource{{Type: "vyandex", URL: "https://v", Priority: 100}}, ContextPlaceholder,
+			[]string{"https://v", "vyandex"}},
+		{"cups room list never the primary, only a legacy alternate", "", "rooms",
+			[]ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder,
+			[]string{"rooms", "cupsonline"}},
 	}
 	for _, c := range cases {
 		got, alts := KDFContexts(c.explicit, c.url, c.specs)
 		if got != c.want {
-			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+			t.Errorf("%s: primary %q, want %q", c.name, got, c.want)
 		}
-		if len(alts) != 0 {
-			t.Errorf("%s: context cycling is gone — want no alternates, got %q", c.name, alts)
+		if !equalStrings(alts, c.wantAlts) {
+			t.Errorf("%s: alternates %q, want %q", c.name, alts, c.wantAlts)
+		}
+		// The primary must never be among its own alternates (no wasted try).
+		for _, a := range alts {
+			if a == got {
+				t.Errorf("%s: primary %q repeated in alternates", c.name, got)
+			}
 		}
 	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
