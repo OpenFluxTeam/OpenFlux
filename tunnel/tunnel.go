@@ -253,7 +253,7 @@ func (t *TCPTunnel) handleExitUDP(r *udp.ForwarderRequest) bool {
 	}
 	local := gonet.NewUDPConn(&wq, ep)
 	noteUDPBypassesUpstream()
-	remote, err := net.DialTimeout("udp", dest, 10*time.Second)
+	remote, err := dialExitUDP(dest)
 	if err != nil {
 		utils.Debugf("[EXIT] UDP dial %s failed: %v", dest, err)
 		local.Close()
