@@ -690,6 +690,9 @@ DEPRECATED (removed in v2)
 			*inbound = inboundSOCKS5
 		}
 	}
+	if *upstreamProxy == "" && os.Getenv("OPENFLUX_EXIT_SOCKS5") != "" {
+		*upstreamProxy = os.Getenv("OPENFLUX_EXIT_SOCKS5")
+	}
 	if *mode == "" {
 		*mode = "l3"
 		// Only the l4 exit dials its own connections, so only it can use
