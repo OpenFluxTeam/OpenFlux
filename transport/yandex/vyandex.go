@@ -294,6 +294,19 @@ func authorizeWithJar(docURL string, jar http.CookieJar) (*volgaAuth, error) {
 
 	utils.Debugf("[VOLGA] office keys: %v", mapKeys(office))
 
+	// Since late October 2026 Yandex may send the editor's session in
+	// officeActionData.editor_config (an object, or the same as JSON text)
+	// instead of at the top level: take it from there when it is missing.
+	if nested := nestedConfig(office["editor_config"]); nested != nil {
+		for _, k := range []string{"action_url", "access_token", "access_token_ttl", "resource_url"} {
+			if _, ok := office[k]; !ok {
+				if v, ok := nested[k]; ok {
+					office[k] = v
+				}
+			}
+		}
+	}
+
 	actionURL := getStr(office, "action_url")
 	accessToken := getStr(office, "access_token")
 	ttl := office["access_token_ttl"]
@@ -314,8 +327,9 @@ func authorizeWithJar(docURL string, jar http.CookieJar) (*volgaAuth, error) {
 		// Yandex opened the document but not in its editor: say why it
 		// thinks so (access by link, the visitor's rights), not just which
 		// keys came, so "view only" and "signed out" can be told apart.
-		return nil, fmt.Errorf("action_url missing: office_access_state=%v rights=%v is_owner=%v editor action=%q (keys: %v)",
-			office["office_access_state"], office["rights"], office["is_owner"], getStr(editor, "action"), mapKeys(office))
+		return nil, fmt.Errorf("action_url missing: office_access_state=%v rights=%v is_owner=%v editor action=%q (keys: %v; editor_config keys: %v)",
+			office["office_access_state"], office["rights"], office["is_owner"], getStr(editor, "action"), mapKeys(office),
+			mapKeys(nestedConfig(office["editor_config"])))
 	}
 	if a.AccessToken == "" {
 		return nil, fmt.Errorf("access_token missing")
@@ -440,6 +454,23 @@ func CheckVolgaDocument(docURL string, jar http.CookieJar) (VolgaDocument, error
 	// Older pages leave the action out; they only reach this point when
 	// the editor opened, so treat a missing one as editable.
 	return VolgaDocument{DocID: a.DocID, Editable: a.Action == "" || a.Action == "edit"}, nil
+}
+
+// nestedConfig is a config object Yandex sends either as an object or as
+// its JSON text; nil when it is neither.
+func nestedConfig(v interface{}) map[string]interface{} {
+	switch c := v.(type) {
+	case map[string]interface{}:
+		return c
+	case string:
+		var m map[string]interface{}
+		dec := json.NewDecoder(strings.NewReader(c))
+		dec.UseNumber()
+		if dec.Decode(&m) == nil {
+			return m
+		}
+	}
+	return nil
 }
 
 func getStr(m map[string]interface{}, key string) string {
