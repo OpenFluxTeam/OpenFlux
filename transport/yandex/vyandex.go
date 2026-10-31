@@ -311,7 +311,11 @@ func authorizeWithJar(docURL string, jar http.CookieJar) (*volgaAuth, error) {
 	}
 
 	if actionURL == "" {
-		return nil, fmt.Errorf("action_url missing (keys: %v)", mapKeys(office))
+		// Yandex opened the document but not in its editor: say why it
+		// thinks so (access by link, the visitor's rights), not just which
+		// keys came, so "view only" and "signed out" can be told apart.
+		return nil, fmt.Errorf("action_url missing: office_access_state=%v rights=%v is_owner=%v editor action=%q (keys: %v)",
+			office["office_access_state"], office["rights"], office["is_owner"], getStr(editor, "action"), mapKeys(office))
 	}
 	if a.AccessToken == "" {
 		return nil, fmt.Errorf("access_token missing")
