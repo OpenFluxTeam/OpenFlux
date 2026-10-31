@@ -214,7 +214,7 @@ func ProbeHost(ctx context.Context, t FTP) (*Probe, error) {
 }
 
 func probe(s *session, t FTP) (*Probe, error) {
-	p := &Probe{Security: s.security}
+	p := &Probe{Security: s.security, Candidates: []string{}}
 	dir := strings.Trim(strings.TrimSpace(t.Dir), "/")
 	if t.Dir != "" {
 		if dir != "" {
