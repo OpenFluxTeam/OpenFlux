@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -95,7 +96,20 @@ func dialExitTCP(dest string) (net.Conn, error) {
 		defer cancel()
 		return u.d.DialContext(ctx, "tcp", dest)
 	}
+	if os.Getenv("OPENFLUX_STRICT_PROXY") == "1" || os.Getenv("OPENFLUX_EXIT_SOCKS5") != "" {
+		return nil, fmt.Errorf("kill-switch: upstream SOCKS5 required but not configured or failed")
+	}
 	return net.DialTimeout("tcp", dest, 10*time.Second)
+}
+
+func dialExitUDP(dest string) (net.Conn, error) {
+	if u := exitUpstream.Load(); u != nil {
+		return dialSOCKS5UDP(u.addr, dest)
+	}
+	if os.Getenv("OPENFLUX_STRICT_PROXY") == "1" || os.Getenv("OPENFLUX_EXIT_SOCKS5") != "" {
+		return nil, fmt.Errorf("kill-switch: upstream SOCKS5 required for UDP but not configured or failed")
+	}
+	return net.DialTimeout("udp", dest, 10*time.Second)
 }
 
 var udpBypassNote sync.Once
@@ -105,6 +119,6 @@ func noteUDPBypassesUpstream() {
 		return
 	}
 	udpBypassNote.Do(func() {
-		utils.Infof("[EXIT] UDP is not sent through --upstream-proxy; it leaves this host directly")
+		utils.Infof("[EXIT] UDP is routed via upstream SOCKS5 UDP relay (UDP ASSOCIATE)")
 	})
 }

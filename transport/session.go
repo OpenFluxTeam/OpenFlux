@@ -36,6 +36,7 @@ type Session struct {
 
 	keepaliveInterval time.Duration
 	linkTimeout       time.Duration
+	idleTimeout       time.Duration // exit: silence on every carrier after which it waits for a new handshake
 	peerKeepalive     bool
 	noPong            bool
 
@@ -242,6 +243,7 @@ func NewSession(p PeerParameters, exit bool) (*Session, error) {
 
 		keepaliveInterval: 10 * time.Second,
 		linkTimeout:       30 * time.Second,
+		idleTimeout:       exitIdleTimeout,
 	}
 	if _, err := rand.Read(s.local[:]); err != nil {
 		return nil, err
@@ -679,6 +681,15 @@ func (s *Session) helloLoop() {
 	}
 }
 
+// exitIdleTimeout is how long an exit hears nothing from its client on any
+// carrier before it lets the handshake go and stops sending: no keepalives
+// into carriers nobody reads. A connected client sends something every
+// keepaliveInterval even with no traffic, so only a client that is gone
+// (closed, killed or out of reach) stays silent that long; a short outage
+// (a switch between networks) does not reach it. The client's next hello, or
+// its next packet (answered with a hello, see nudgeLocked), wakes the exit.
+const exitIdleTimeout = 5 * time.Minute
+
 func (s *Session) keepaliveLoop() {
 	defer s.wg.Done()
 	tick := time.NewTicker(s.keepaliveInterval)
@@ -690,9 +701,13 @@ func (s *Session) keepaliveLoop() {
 		case <-tick.C:
 		}
 		s.mu.Lock()
-		if !s.exit && s.ready && s.peerKeepalive && s.peerSilentLocked() {
+		if !s.exit && s.ready && s.peerKeepalive && s.peerSilentLocked(s.linkTimeout) {
 			s.resetLocked()
 			utils.Infof("[SESSION] exit silent on every carrier for %v: handshaking again", s.linkTimeout)
+		}
+		if s.exit && s.ready && s.peerSilentLocked(s.idleTimeout) {
+			s.resetLocked()
+			utils.Infof("[SESSION] client silent on every carrier for %v: idle until its next hello", s.idleTimeout)
 		}
 		var quiet []*transportLink
 		if s.ready {
@@ -714,9 +729,11 @@ func (s *Session) keepaliveLoop() {
 	}
 }
 
-func (s *Session) peerSilentLocked() bool {
+// peerSilentLocked reports whether the peer was heard on no carrier for d.
+// Caller holds s.mu.
+func (s *Session) peerSilentLocked(d time.Duration) bool {
 	for _, l := range s.links {
-		if time.Since(l.lastHeard) < s.linkTimeout {
+		if time.Since(l.lastHeard) < d {
 			return false
 		}
 	}
