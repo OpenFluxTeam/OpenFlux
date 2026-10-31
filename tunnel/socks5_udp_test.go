@@ -6,7 +6,7 @@ import (
 )
 
 func TestSOCKS5UDPUnit(t *testing.T) {
-	conn, err := dialSOCKS5UDP("127.0.0.1:40001", "1.1.1.1:53")
+	conn, err := dialSOCKS5UDP("127.0.0.1:40001", nil, "1.1.1.1:53")
 	if err != nil {
 		t.Skipf("No local SOCKS5 proxy on 40001: %v", err)
 		return
