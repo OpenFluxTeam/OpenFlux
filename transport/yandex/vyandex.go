@@ -324,6 +324,7 @@ func authorizeWithJar(docURL string, jar http.CookieJar) (*volgaAuth, error) {
 	}
 
 	if actionURL == "" {
+		logEditorShape(office)
 		// Yandex opened the document but not in its editor: say why it
 		// thinks so (access by link, the visitor's rights), not just which
 		// keys came, so "view only" and "signed out" can be told apart.
@@ -454,6 +455,21 @@ func CheckVolgaDocument(docURL string, jar http.CookieJar) (VolgaDocument, error
 	// Older pages leave the action out; they only reach this point when
 	// the editor opened, so treat a missing one as editable.
 	return VolgaDocument{DocID: a.DocID, Editable: a.Action == "" || a.Action == "edit"}, nil
+}
+
+// logEditorShape says, once in a while, which editor Yandex opened the
+// document in when it is not the one this transport speaks to, and the
+// shape of its config: names and kinds only, never the token or links.
+func logEditorShape(office map[string]interface{}) {
+	nested := nestedConfig(office["editor_config"])
+	if nested == nil || !utils.Throttled("volga.editorshape", time.Minute) {
+		return
+	}
+	ec := nestedConfig(nested["editorConfig"])
+	doc := nestedConfig(nested["document"])
+	utils.Infof("[VOLGA] editor %v: type=%v documentType=%v; editorConfig keys %v (mode=%v, coEditing=%v); document keys %v (fileType=%v)",
+		office["office_online_editor_type"], nested["type"], nested["documentType"], mapKeys(ec), ec["mode"], ec["coEditing"],
+		mapKeys(doc), doc["fileType"])
 }
 
 // nestedConfig is a config object Yandex sends either as an object or as
