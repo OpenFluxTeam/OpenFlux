@@ -361,14 +361,16 @@ func (t *MailruDocsTransport) Start() error {
 }
 
 // mailruPreferredBatchBytes is the default coalescing batch size for the chat
-// carrier. The R7 server cuts an anonymous editor connection with 4004 after
-// ~12 chat messages regardless of their size, so a large batch fits far more
-// tunnel data into that fixed message budget before the reconnect. Measured
-// end-to-end (d14 exit <-> 212 client, cachefly 10 MB via socks5h): the 8 KB
-// default gave the old tens-of-KB/s; ~500 KB reaches ~860 KB/s per burst, while
-// 1 MB is slower and far more variable (a bigger loss unit per 4004 cut).
+// carrier, and so the largest chat message it writes. The R7 server cuts a
+// connection with 4004 after a budget of chat messages, so a batch should be as
+// large as the server still relays. Since 1 Nov 2026 that is no longer 500 KB:
+// measured live with a signed-in account (both ends on one document), messages
+// of 1-64 KB arrive in 0.2-0.8 s, while 128, 256 and 500 KB never reach the
+// other side and the sender's connection is cut with 4004 ("access deny"). The
+// old 500 KB batches therefore lost every bulk transfer (small requests still
+// went through). 48 KB (64 KB as base64) stays under the cut.
 // OPENFLUX_BATCH_BYTES overrides this (see transport.BatchSizeHinter).
-const mailruPreferredBatchBytes = 500_000
+const mailruPreferredBatchBytes = 48_000
 
 // PreferredBatchBytes implements transport.BatchSizeHinter.
 func (t *MailruDocsTransport) PreferredBatchBytes() int { return mailruPreferredBatchBytes }
@@ -442,9 +444,12 @@ const mailruRotateAuthWait = 8 * time.Second
 // (which stops a retransmit burst from blowing the bucket mid-rotation), this
 // took the exit's 4004 cuts under an 8x download from ~11 per run to 0. At
 // ~1-2 x 500 KB batches/s under the server throttle it rotates roughly every
-// 30-60 s. 0 disables count-based rotation (time only).
+// 30-60 s. Since 1 Nov 2026 the budget is far smaller for a signed-in account:
+// connections were cut after 5-27 messages (live, 1 KB messages paced at 5/s,
+// 10 cuts a minute), so 20 rotates before the usual cut.
+// 0 disables count-based rotation (time only).
 // OPENFLUX_MAILRU_ROTATE_MSGS overrides it.
-const defaultMailruRotateMsgs = 60
+const defaultMailruRotateMsgs = 20
 
 var mailruRotateMsgs = func() int64 {
 	n := int64(defaultMailruRotateMsgs)
