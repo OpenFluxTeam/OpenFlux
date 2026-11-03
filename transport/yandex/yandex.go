@@ -500,6 +500,19 @@ func (t *YandexDocsTransport) writerLoop() {
 	}
 }
 
+// yandexCursorBatchBytes is the coalescing batch size for this carrier, and so
+// the largest packet it puts into one cursor message. Since Nov 2026 Yandex
+// relays a cursor only while it is short: measured live with a signed-in
+// account (two connections to one file), 500 B and 2 KB packets arrived in
+// 0.25 s, while 4, 8, 16, 32 and 64 KB ones never did, at any pace. With the
+// default 8 KB batches only small exchanges got through (an IP check did, a web
+// page or a download did not). 1800 B plus the encryption overhead stays under
+// 2 KB. OPENFLUX_BATCH_BYTES overrides it (see transport.BatchSizeHinter).
+const yandexCursorBatchBytes = 1800
+
+// PreferredBatchBytes implements transport.BatchSizeHinter.
+func (t *YandexDocsTransport) PreferredBatchBytes() int { return yandexCursorBatchBytes }
+
 // Keepalives of one size at one interval are a signature that survives
 // TLS. They now come at 0.5-1.5x the configured interval and carry random
 // padding after the marker; peers find the marker with strings.Contains, so
