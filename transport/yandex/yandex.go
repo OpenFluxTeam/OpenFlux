@@ -11,9 +11,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -464,7 +462,6 @@ func (t *YandexDocsTransport) writerLoop() {
 	}
 
 	var pending []byte
-	var lastWrite time.Time
 	for t.IsRunning() {
 		if pending == nil {
 			select {
@@ -487,14 +484,6 @@ func (t *YandexDocsTransport) writerLoop() {
 			continue
 		}
 
-		// Pace the cursors: the server relays only so many per second (see
-		// yandexMsgInterval); the batcher fills the batch meanwhile.
-		if yandexMsgInterval > 0 && !lastWrite.IsZero() {
-			if wait := yandexMsgInterval - time.Since(lastWrite); wait > 0 {
-				time.Sleep(wait)
-			}
-		}
-
 		payload := base64.StdEncoding.EncodeToString(pending)
 		// The cursor's numeric prefix must equal the actual binary packet
 		// length (before Base64), not a fixed constant: Yandex Disk does not
@@ -507,7 +496,6 @@ func (t *YandexDocsTransport) writerLoop() {
 			time.Sleep(15 * time.Millisecond)
 			continue // keep pending; the reconnect will bring up a new conn
 		}
-		lastWrite = time.Now()
 		pending = nil
 	}
 }
@@ -524,25 +512,6 @@ const yandexCursorBatchBytes = 1800
 
 // PreferredBatchBytes implements transport.BatchSizeHinter.
 func (t *YandexDocsTransport) PreferredBatchBytes() int { return yandexCursorBatchBytes }
-
-// defaultYandexMsgIntervalMs is the least gap between two cursor messages. The
-// server relays a participant's cursors at a limited rate and loses the rest:
-// measured live (1500 B packets, 20 s each), all arrived at 1, 2 and 4 per
-// second, 74 % at 10 per second. Unpaced, a TCP burst lost most of its packets
-// and the retransmissions crawled at under 1 KB/s; 150 ms (6-7 a second) keeps
-// under the limit for ~12 KB/s with full batches.
-// OPENFLUX_YANDEX_MSG_INTERVAL_MS overrides it; 0 disables pacing.
-const defaultYandexMsgIntervalMs = 150
-
-var yandexMsgInterval = func() time.Duration {
-	n := defaultYandexMsgIntervalMs
-	if v := os.Getenv("OPENFLUX_YANDEX_MSG_INTERVAL_MS"); v != "" {
-		if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
-			n = parsed
-		}
-	}
-	return time.Duration(n) * time.Millisecond
-}()
 
 // Keepalives of one size at one interval are a signature that survives
 // TLS. They now come at 0.5-1.5x the configured interval and carry random
