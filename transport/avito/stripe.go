@@ -54,6 +54,9 @@ func (t *AvitoTransport) startStripe() error {
 	st.SetOptions(stripeOptions)
 	st.Receive(t.CallReceive)
 	if err := st.Start(); err != nil {
+		// Every attempt makes a stripe (rings of ~5 MiB, a delivery goroutine): a failed one must be released,
+		// the supervisor tries again every few seconds.
+		_ = st.Stop()
 		return err
 	}
 	t.stripe.Store(st)
