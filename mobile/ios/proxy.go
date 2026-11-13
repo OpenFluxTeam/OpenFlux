@@ -24,7 +24,7 @@ var proxyStarted time.Time
 
 // OpenFluxStartClient starts the SOCKS5 client on socksAddr for a classic
 // profile: transportType ("yandex", "vyandex"/"volga", "boards", "mailru",
-// "cupsonline", "direct", "oneme") and url (the document, the room list,
+// "cupsonline", "direct", "fluxfast", "oneme") and url (the document, the room list,
 // host:port for direct; a comma-separated list runs one carrier per
 // document). With a secret (OpenFluxSetEncryption) it is a Session that
 // speaks classic to a node that does not answer the handshake. Returns a
@@ -40,7 +40,7 @@ func OpenFluxStartClient(transportType, url, socksAddr, maxToken, maxUid *C.char
 	value := strings.TrimSpace(C.GoString(url))
 	addr := C.GoString(socksAddr)
 	secret, codec := currentSettings()
-	if typ == "direct" && secret == "" {
+	if (typ == "direct" || typ == "fluxfast") && secret == "" {
 		log.Printf("[BRIDGE] direct needs an encryption key")
 		return startBadEncryption
 	}

@@ -74,7 +74,7 @@ func contextSources(specs []sessionSpec) []transport.ContextSource {
 	out := make([]transport.ContextSource, len(specs))
 	for i, s := range specs {
 		url := s.URL
-		if s.Type == "direct" {
+		if s.Type == "direct" || s.Type == "fluxfast" {
 			url = ""
 		}
 		out[i] = transport.ContextSource{Type: s.Type, URL: url, Priority: s.Priority}
@@ -160,7 +160,7 @@ func buildSessionWith(specsJSON, secret string, exit bool, opt sessionOptions) (
 		if err := m.Add(spec.Name, spec.Type, raw, spec.Priority, provider); err != nil {
 			return nil, nil, err
 		}
-		if spec.Type != "direct" && spec.Type != "oneme" {
+		if spec.Type != "direct" && spec.Type != "fluxfast" && spec.Type != "oneme" {
 			m.SetURL(spec.Name, spec.URL)
 		}
 		if provider != nil {

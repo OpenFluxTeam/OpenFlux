@@ -87,7 +87,7 @@ func OpenFluxStartPacketTunnel(transportType, url, maxToken, maxUid *C.char) (rc
 	typ := normalizeType(C.GoString(transportType))
 	value := strings.TrimSpace(C.GoString(url))
 	secret, codec := currentSettings()
-	if typ == "direct" && secret == "" {
+	if (typ == "direct" || typ == "fluxfast") && secret == "" {
 		log.Printf("[PKT] direct needs an encryption key")
 		return startBadEncryption
 	}

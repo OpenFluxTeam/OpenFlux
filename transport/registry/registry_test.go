@@ -34,6 +34,7 @@ func TestEveryNativeTypeBuilds(t *testing.T) {
 		"avito":      &avito.AvitoTransport{},
 		"oneme":      &oneme.OneMeTransport{},
 		"direct":     &transport.DirectTransport{},
+		"fluxfast":   &transport.FluxFastTransport{},
 	}
 	for typ, want := range cases {
 		got, err := New(typ, "https://example.test/doc", map[string]interface{}{"dial": "127.0.0.1:1", "token": "t", "uid": "5"}, opts())
@@ -126,6 +127,35 @@ func TestDirectAddressesAndRoles(t *testing.T) {
 	// Not strict (the CLI): it fails when it starts, as before.
 	o.StrictDirect = false
 	if _, err := New("direct", "", nil, o); err != nil {
+		t.Fatalf("the CLI path must not refuse here: %v", err)
+	}
+}
+
+// FluxFast takes direct's address shape and is strict about it like the
+// apps are when asked.
+func TestFluxfastAddressesAndRoles(t *testing.T) {
+	o := opts()
+	tr, err := New("fluxfast", "", map[string]interface{}{"dial": "10.0.0.1:8445", "chunk": float64(900)}, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tr.(*transport.FluxFastTransport); !ok {
+		t.Fatalf("fluxfast built %T", tr)
+	}
+	o.IsExit = true
+	if _, err := New("fluxfast", "", map[string]interface{}{"dial": "0.0.0.0:8445"}, o); err != nil {
+		t.Fatal(err)
+	}
+	o.StrictDirect = true
+	if _, err := New("fluxfast", "", nil, o); err == nil {
+		t.Fatal("an exit without an address must be refused when strict")
+	}
+	o.IsExit = false
+	if _, err := New("fluxfast", "", nil, o); err == nil {
+		t.Fatal("a client without an address must be refused when strict")
+	}
+	o.StrictDirect = false
+	if _, err := New("fluxfast", "", nil, o); err != nil {
 		t.Fatalf("the CLI path must not refuse here: %v", err)
 	}
 }

@@ -59,7 +59,7 @@ func ExitShareLink(host, name string) (string, error) {
 	c.Transports = nil
 	for _, t := range tmpl.Transports {
 		switch t.Type {
-		case "direct":
+		case "direct", "fluxfast":
 			_, port, err := net.SplitHostPort(t.Dial)
 			if err != nil || host == "" {
 				return "", errors.New("direct: нет адреса, по которому клиенты смогут подключиться")
@@ -95,8 +95,8 @@ func exitShareClassic(transportType, documentURL, secret, codec string) *share.C
 	context, _ := transport.KDFContexts("", documentURL, []transport.ContextSource{{Type: transportType, URL: documentURL, Priority: 100}})
 	t := share.Transport{Type: transportType, URL: documentURL}
 	c := &share.Config{Secret: secret, Context: context}
-	if transportType == "direct" {
-		t = share.Transport{Type: "direct", Dial: documentURL}
+	if transportType == "direct" || transportType == "fluxfast" {
+		t = share.Transport{Type: transportType, Dial: documentURL}
 		c.Negotiate = true
 	}
 	c.Transports = []share.Transport{t}
@@ -125,7 +125,7 @@ func exitShareSession(specsJSON, secret string) *share.Config {
 		switch s.Type {
 		case "oneme":
 			continue
-		case "direct":
+		case "direct", "fluxfast":
 			listen, _ := s.Params["listen"].(string)
 			if listen == "" {
 				listen, _ = s.Params["dial"].(string)
@@ -165,7 +165,7 @@ func sessionSpecsOf(c share.Config) string {
 			}
 		}
 		spec := sessionSpec{Name: name, Type: t.Type, URL: t.URL, Priority: t.Priority}
-		if t.Type == "direct" {
+		if t.Type == "direct" || t.Type == "fluxfast" {
 			spec.URL = ""
 			spec.Params = map[string]interface{}{"dial": t.Dial}
 		}

@@ -54,7 +54,7 @@ type Options struct {
 // existed; moving every user-facing word out of the core is a separate step.
 
 // Types are the transport types New accepts, in the order the apps list them.
-var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "avito", "telemost", "oneme", "direct", "script"}
+var Types = []string{"yandex", "vyandex", "boards", "mailru", "cupsonline", "avito", "telemost", "oneme", "direct", "fluxfast", "script"}
 
 // New builds the raw carrier of the given type. params carries what a type
 // needs beyond its url: "token"/"uid" (and "exit") for oneme, "dial"/"listen"
@@ -113,6 +113,8 @@ func New(typ, url string, params map[string]interface{}, o Options) (transport.T
 		return newScript(url, params, o)
 	case "direct":
 		return newDirect(params, o)
+	case "fluxfast":
+		return newFluxfast(params, o)
 	case "mixed":
 		// A mixed group is recognised by its url ("type:link ..."), above.
 		return nil, errors.New("mixed: в url нужны ссылки вида тип:ссылка (cupsonline:... avito:... mailru:...)")
@@ -209,6 +211,40 @@ func newDirect(params map[string]interface{}, o Options) (transport.Transport, e
 		}
 	}
 	return transport.NewDirectTransport(o.Base, dcfg), nil
+}
+
+// newFluxfast builds the UDP carrier. It takes the same address shape as
+// direct: one "dial" address for a client, one "listen" address for an exit
+// (a profile keeps one and the exit falls back to it), plus optional "chunk"
+// and "mtu" tuning.
+func newFluxfast(params map[string]interface{}, o Options) (transport.Transport, error) {
+	str := func(key string) string {
+		v, _ := params[key].(string)
+		return v
+	}
+	cfg := transport.DefaultFluxFastConfig()
+	cfg.IsExit = roleParam(params, "is_exit", o.IsExit)
+	dial, listen := str("dial"), str("listen")
+	if cfg.IsExit && listen == "" {
+		listen = dial
+	}
+	cfg.DialAddr, cfg.ListenAddr = dial, listen
+	cfg.Unpreferred = !preferParam(params)
+	if n := intParam(params, "chunk"); n > 0 {
+		cfg.Chunk = n
+	}
+	if n := intParam(params, "mtu"); n > 0 {
+		cfg.MTU = n
+	}
+	if o.StrictDirect {
+		if cfg.IsExit && listen == "" {
+			return nil, errors.New("fluxfast: не указан адрес для прослушивания (host:port)")
+		}
+		if !cfg.IsExit && dial == "" {
+			return nil, errors.New("fluxfast: не указан адрес ноды (host:port)")
+		}
+	}
+	return transport.NewFluxFastTransport(o.Base, cfg), nil
 }
 
 // newScript builds a JS (goja) script transport. params carries the on-disk

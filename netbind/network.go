@@ -56,6 +56,34 @@ func DialerFor(network string, timeout time.Duration) *net.Dialer {
 	return WrapFor(network, &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second})
 }
 
+// ListenUDPFor opens an unconnected UDP socket bound to network. Unlike
+// DialerFor, its WriteToUDP can reach more than one address, which a carrier
+// needs to validate a path challenge before it moves its peer.
+func ListenUDPFor(network string, address string) (*net.UDPConn, error) {
+	if network == "" {
+		addr, err := net.ResolveUDPAddr("udp", address)
+		if err != nil {
+			return nil, err
+		}
+		return net.ListenUDP("udp", addr)
+	}
+	lc := net.ListenConfig{
+		Control: func(n, a string, c syscall.RawConn) error {
+			return bindNetwork(network, a, c)
+		},
+	}
+	pc, err := lc.ListenPacket(context.Background(), "udp", address)
+	if err != nil {
+		return nil, err
+	}
+	conn, ok := pc.(*net.UDPConn)
+	if !ok {
+		pc.Close()
+		return nil, fmt.Errorf("netbind: %q is not a UDP socket", pc.LocalAddr())
+	}
+	return conn, nil
+}
+
 // DialContextFor dials on network; "" is DialContext.
 func DialContextFor(network string) func(ctx context.Context, n, address string) (net.Conn, error) {
 	if network == "" {

@@ -346,6 +346,7 @@ func TestKDFContextsRule(t *testing.T) {
 			{Type: "mailru", URL: "https://m", Priority: 10}, {Type: "vyandex", URL: "https://v", Priority: 100}}, "https://v"},
 		{"classic cups rooms as --url", "", "rooms", []ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder},
 		{"direct address", "", ContextPlaceholder, []ContextSource{{Type: "direct", URL: "1.2.3.4:9443"}}, ContextPlaceholder},
+		{"fluxfast address", "", ContextPlaceholder, []ContextSource{{Type: "fluxfast", URL: "1.2.3.4:9443"}}, ContextPlaceholder},
 	}
 	for _, c := range cases {
 		got, alts := KDFContexts(c.explicit, c.url, c.specs)
