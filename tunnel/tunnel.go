@@ -518,7 +518,7 @@ func SetLocalIP(ip string) error { return l3.SetLocalIP(ip) }
 // own MSS, so a peer that keeps 1500 simply keeps getting 1460-byte segments.
 // OPENFLUX_TUNNEL_MTU forces a value.
 func tunnelMTU(trans transport.Transport) int {
-	if n, err := strconv.Atoi(os.Getenv("OPENFLUX_TUNNEL_MTU")); err == nil && n >= 1280 && n <= 65000 {
+	if n, err := strconv.Atoi(os.Getenv("OPENFLUX_TUNNEL_MTU")); err == nil && n >= transport.MinCarrierMTU && n <= 65000 {
 		return n
 	}
 	mtu := transport.DefaultCarrierMTU
@@ -530,7 +530,7 @@ func tunnelMTU(trans transport.Transport) int {
 			mtu = min(mtu, p.MaxPacketSize)
 		}
 	}
-	return max(min(mtu, 65000), 1280)
+	return max(min(mtu, 65000), transport.MinCarrierMTU)
 }
 
 // watchMTU follows the carrier set: a carrier added later that cannot take

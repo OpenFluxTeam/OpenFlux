@@ -25,10 +25,10 @@ import (
 //
 //export OpenFluxCaptchaPending
 func OpenFluxCaptchaPending() *C.char {
-	if mobile.PendingCaptchaProxy() != "" {
+	if mobile.PendingPromptProxy() != "" {
 		return C.CString("")
 	}
-	return C.CString(mobile.PendingCaptchaURL())
+	return C.CString(mobile.PendingPromptURL())
 }
 
 // OpenFluxRemoteCaptchaPending returns the page the exit needs passed, or
@@ -36,10 +36,10 @@ func OpenFluxCaptchaPending() *C.char {
 //
 //export OpenFluxRemoteCaptchaPending
 func OpenFluxRemoteCaptchaPending() *C.char {
-	if mobile.PendingCaptchaProxy() == "" {
+	if mobile.PendingPromptProxy() == "" {
 		return C.CString("")
 	}
-	return C.CString(mobile.PendingCaptchaURL())
+	return C.CString(mobile.PendingPromptURL())
 }
 
 // OpenFluxRemoteCaptchaProxy returns the loopback HTTP proxy (host:port)
@@ -49,7 +49,7 @@ func OpenFluxRemoteCaptchaPending() *C.char {
 //
 //export OpenFluxRemoteCaptchaProxy
 func OpenFluxRemoteCaptchaProxy() *C.char {
-	return C.CString(mobile.PendingCaptchaProxy())
+	return C.CString(mobile.PendingPromptProxy())
 }
 
 // OpenFluxCaptchaReason is "smartcaptcha" or "login" while a check is
@@ -57,7 +57,7 @@ func OpenFluxRemoteCaptchaProxy() *C.char {
 //
 //export OpenFluxCaptchaReason
 func OpenFluxCaptchaReason() *C.char {
-	return C.CString(mobile.PendingCaptchaReason())
+	return C.CString(mobile.PendingPromptReason())
 }
 
 // OpenFluxApplyCaptchaCookies takes the cookies of a passed check (a
@@ -71,7 +71,7 @@ func OpenFluxApplyCaptchaCookies(cookies *C.char) C.int {
 		return 0
 	}
 	header := C.GoString(cookies)
-	if mobile.SubmitCaptchaCookies(header) != "" {
+	if mobile.SubmitPromptCookies(header) != "" {
 		return 0
 	}
 	return C.int(countCookies(header))
@@ -90,7 +90,7 @@ func OpenFluxOfferCaptchaCookies(cookies *C.char) C.int {
 //
 //export OpenFluxCancelCaptcha
 func OpenFluxCancelCaptcha() {
-	mobile.CancelCaptcha()
+	mobile.CancelPrompt()
 }
 
 // OpenFluxSetInitialCookies passes cookies got before starting (a check

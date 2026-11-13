@@ -52,7 +52,7 @@ func newMediaPeerConnectionJS(vm *goja.Runtime, t *ScriptTransport, call goja.Fu
 	}
 	t.addCloser(func() { _ = pc.Close() })
 
-	obj := commonPCObject(vm, t, pc)
+	obj := commonPCObject(vm, t, pc, nil)
 
 	obj.Set("addMediaTransceiver", func(call goja.FunctionCall) goja.Value {
 		kind := webrtc.NewRTPCodecType(call.Argument(0).String())

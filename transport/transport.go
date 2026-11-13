@@ -47,6 +47,10 @@ type TransportStats struct {
 // server's anti-abuse after ~12 messages regardless of their size, so a small
 // batch wastes most of the per-connection budget. newLink passes the hint to
 // NewBatchedTransport; OPENFLUX_BATCH_BYTES still overrides it.
+//
+// A hint of 4096 or less is a hard limit, not a target: it is one datagram's worth, and a batch that
+// went over it would be cut in two by the carrier and lost with either half. The batcher then never
+// puts a packet into a batch it does not fit (a packet larger than the hint goes alone).
 type BatchSizeHinter interface {
 	PreferredBatchBytes() int
 }
@@ -79,6 +83,13 @@ const preferredBoost = 1000
 // DefaultCarrierMTU is the IP packet size a carrier is assumed to move without
 // trouble when it says nothing: what a stack gets on an ordinary network.
 const DefaultCarrierMTU = 1500
+
+// MinCarrierMTU is the smallest packet size a carrier may declare (CarrierMTUer). The usual floor is 1280, but
+// the tunnel stack is IPv4 only, and a carrier whose message is one datagram on the wire (a WebRTC data
+// channel over a mobile network) moves a packet far better when the whole record fits that datagram, the
+// tunnel's ~115 bytes of envelope and encryption included, than when SCTP has to cut it in two and loses all
+// of it with either half.
+const MinCarrierMTU = 576
 
 // CarrierMTUer is an optional interface for a carrier that moves large IP
 // packets as easily as small ones (a TCP stream): the tunnel stack then runs

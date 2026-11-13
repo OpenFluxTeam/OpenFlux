@@ -173,6 +173,19 @@ func (w *nodeWizard) handle(req wizardRequest) map[string]interface{} {
 			return wizardFailure(err, nil)
 		}
 		return wizardOK(map[string]interface{}{"channel": id, "key": key})
+	case "kit":
+		// Nothing connects: the installation as a script the person runs by hand (see provision.RenderKit).
+		installer, err := w.newScript(p.Source)
+		if err != nil {
+			return wizardFailure(err, nil)
+		}
+		ch := p.channel()
+		ch.Key = p.Key
+		kit, err := provision.RenderKitFor(ch, installer)
+		if err != nil {
+			return wizardFailure(err, nil)
+		}
+		return wizardOK(map[string]interface{}{"kit": kit})
 	case "plan":
 		conn, err := w.connected()
 		if err != nil {

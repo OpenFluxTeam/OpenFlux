@@ -13,6 +13,7 @@ import (
 
 	"github.com/p1neappleXpress/OpenFlux/transport"
 	"github.com/p1neappleXpress/OpenFlux/transport/registry"
+	"github.com/p1neappleXpress/OpenFlux/tunnel"
 	"github.com/p1neappleXpress/OpenFlux/utils"
 )
 
@@ -114,7 +115,7 @@ func startPacket(build func() (transport.Transport, error)) string {
 		client.mu.Lock()
 		client.running = false
 		client.mu.Unlock()
-		detachCaptcha()
+		detachPrompt()
 		setAuthProxy(nil)
 		return err.Error()
 	}
@@ -125,6 +126,7 @@ func startPacket(build func() (transport.Transport, error)) string {
 	maxQueue := transport.DefaultConfig().MaxQueueSize
 	trans.Receive(func(data []byte) {
 		packet := append([]byte(nil), data...)
+		tunnel.ClampDeviceSyn(trans, packet)
 		client.mu.Lock()
 		if !client.running {
 			client.mu.Unlock()
@@ -196,7 +198,7 @@ func classicTransport(transportType, documentURL, encryptionSecret, codec, maxTo
 	if err != nil {
 		return nil, err
 	}
-	attachCaptcha(transportType, documentURL, inner)
+	attachPrompt(transportType, documentURL, inner)
 	setClassicRoute(transportType)
 	if exit {
 		addExitRoom(transportType, inner)
@@ -240,8 +242,8 @@ func Stop() {
 	client.transport = nil
 	client.packets = nil
 	client.mu.Unlock()
-	detachCaptcha()
-	CancelCaptcha()
+	detachPrompt()
+	CancelPrompt()
 	setAuthProxy(nil)
 	clearRoute()
 	appendLog("[ANDROID] Остановка транспорта")
@@ -265,7 +267,7 @@ func Send(packet []byte) string {
 	if !running || trans == nil {
 		return "Транспорт не запущен"
 	}
-	if err := trans.Send(packet); err != nil {
+	if err := tunnel.SendFromDevice(trans, packet); err != nil {
 		return err.Error()
 	}
 	return ""

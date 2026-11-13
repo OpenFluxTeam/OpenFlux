@@ -55,10 +55,14 @@ func (s *Session) CarrierMTU() int {
 	}
 	group := topLinks(live)
 	mtu := s.params.MaxPacketSize
+	floor := 1280
 	for _, l := range group {
 		mtu = min(mtu, l.limit())
+		if l.mtu >= MinCarrierMTU && l.mtu < floor {
+			floor = l.mtu // a carrier that says it moves less than the usual floor is believed
+		}
 	}
-	return max(mtu, 1280)
+	return max(mtu, floor)
 }
 
 // limit is the largest packet the carrier of l is known to move.
@@ -91,6 +95,18 @@ func fitLink(chosen *transportLink, n int) error {
 		return nil
 	}
 	return &PacketTooLargeError{Limit: chosen.limit()}
+}
+
+// fitDeclaredLink refuses a TCP packet above what the carrier it is going over declared, when that is
+// less than DefaultCarrierMTU (fitLink covers the larger ones). A stack that has not lowered its segment
+// size yet gets an ICMP "fragmentation needed" for it; an exit cuts what receive offload merged (see
+// tunnel/l3). Other protocols go as they always did: an oversized datagram only costs the carrier a second
+// fragment, and its sender may have no way to learn the limit.
+func fitDeclaredLink(chosen *transportLink, p []byte) error {
+	if chosen.mtu < MinCarrierMTU || chosen.mtu >= DefaultCarrierMTU || len(p) <= chosen.mtu || len(p) < 20 || p[9] != 6 {
+		return nil
+	}
+	return &PacketTooLargeError{Limit: chosen.mtu}
 }
 
 // OnReliableStream implements StreamCarrierer: every carrier data goes over now (the live

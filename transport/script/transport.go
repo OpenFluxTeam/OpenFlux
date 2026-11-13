@@ -43,6 +43,11 @@ type ScriptTransport struct {
 	file      string            // base name it was loaded from, so an update replaces that very file
 	cfgURL    string
 	cfgParams map[string]interface{}
+	// declaredMTU/declaredBatch are carrierMtu and batchBytes of info(), read in New (see CarrierMTU).
+	declaredMTU, declaredBatch int
+	// setupValues, when not nil, makes this transport a setup session (see
+	// StartSetup): the script's Transport.setup(values) runs instead of open().
+	setupValues map[string]string
 
 	httpClient           *http.Client
 	httpClientNoRedirect *http.Client // http.fetch({redirect: "manual"})
@@ -53,6 +58,11 @@ type ScriptTransport struct {
 	info        Info
 
 	writeCh chan []byte
+
+	// recvCh holds what the script emitted, in the order it emitted it, for recvPump to hand to the
+	// session one at a time. A goroutine per emitted packet (what this was) lets two packets that came
+	// out of the carrier in order go in in either: inside a tunnel carrying TCP that looks like loss.
+	recvCh chan []byte
 
 	mu          sync.RWMutex
 	lastState   string
@@ -92,13 +102,6 @@ type ScriptTransport struct {
 	// pubTrack is the one publishing media track (host_media.go), for the
 	// stripe's UplinkLoss.
 	pubTrack atomic.Pointer[*publishTrack]
-	// recvCh hands what the script receives to the core in order, on one
-	// goroutine (a goroutine per packet let packets overtake each other).
-	recvCh chan []byte
-
-	// batchBytes is info().batchBytes, read when the transport is built (the
-	// Session asks for it before Start runs the script).
-	batchBytes int
 }
 
 // New builds a script transport from a signed JS file at scriptPath. pubKey
@@ -130,11 +133,6 @@ func New(name, scriptPath string, pubKey ed25519.PublicKey, url string, params m
 	if err != nil {
 		return nil, fmt.Errorf("script: cookie jar: %w", err)
 	}
-	var batchBytes int
-	if info, err := Inspect(src); err == nil {
-		batchBytes = info.BatchBytes
-	}
-
 	t := &ScriptTransport{
 		BaseTransport: transport.NewBaseTransport(baseCfg),
 		name:          name,
@@ -145,9 +143,14 @@ func New(name, scriptPath string, pubKey ed25519.PublicKey, url string, params m
 		cfgURL:        url,
 		cfgParams:     params,
 		cookieJar:     jar,
-		batchBytes:    batchBytes,
 	}
 	t.httpClient, t.httpClientNoRedirect = t.buildHTTPClients(jar)
+	// A session reads what a carrier declares (packet size, batch size) when it adds the carrier, before
+	// Start has run the script, so info() is read here once as well, in a VM of its own (see Inspect). A
+	// script that fails to load or to describe itself declares nothing; Start reports why.
+	if peek, err := Inspect(src); err == nil {
+		t.declaredMTU, t.declaredBatch = peek.CarrierMTU, peek.BatchBytes
+	}
 	return t, nil
 }
 
@@ -317,6 +320,12 @@ func (t *ScriptTransport) Deliver(kind string, payload map[string]interface{}) e
 // Info returns the script's parsed manifest. Valid once Start() returns
 // without error.
 func (t *ScriptTransport) Info() Info { return t.info }
+
+// CarrierMTU implements transport.CarrierMTUer: the packet size the script declared (carrierMtu in info()).
+func (t *ScriptTransport) CarrierMTU() int { return t.declaredMTU }
+
+// PreferredBatchBytes implements transport.BatchSizeHinter (batchBytes in info()).
+func (t *ScriptTransport) PreferredBatchBytes() int { return t.declaredBatch }
 
 // tuneHTTPTransport applies info().http* pool sizing to the shared
 // *http.Transport, once (bootstrap calls this right after parsing info(),
@@ -556,6 +565,10 @@ func (t *ScriptTransport) bootstrap(vm *goja.Runtime) error {
 	t.infoRead()
 	t.tuneHTTPTransport()
 
+	if t.setupValues != nil {
+		return t.runSetup(vm, obj)
+	}
+
 	openFn, ok := goja.AssertFunction(obj.Get("open"))
 	if !ok {
 		return fmt.Errorf("Transport.open is not a function")
@@ -704,5 +717,3 @@ func (t *ScriptTransport) recvPump() {
 	}
 }
 
-// PreferredBatchBytes implements transport.BatchSizeHinter from info().batchBytes.
-func (t *ScriptTransport) PreferredBatchBytes() int { return t.batchBytes }
