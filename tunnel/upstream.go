@@ -24,6 +24,7 @@ import (
 
 type upstreamDialer struct {
 	addr string
+	auth *proxy.Auth
 	d    proxy.ContextDialer
 }
 
@@ -50,7 +51,7 @@ func SetExitUpstream(spec string) error {
 	if !ok {
 		return fmt.Errorf("upstream proxy %s: dialer has no DialContext", addr)
 	}
-	exitUpstream.Store(&upstreamDialer{addr: addr, d: cd})
+	exitUpstream.Store(&upstreamDialer{addr: addr, auth: auth, d: cd})
 	return nil
 }
 
@@ -104,7 +105,7 @@ func dialExitTCP(dest string) (net.Conn, error) {
 
 func dialExitUDP(dest string) (net.Conn, error) {
 	if u := exitUpstream.Load(); u != nil {
-		return dialSOCKS5UDP(u.addr, dest)
+		return dialSOCKS5UDP(u.addr, u.auth, dest)
 	}
 	if os.Getenv("OPENFLUX_STRICT_PROXY") == "1" || os.Getenv("OPENFLUX_EXIT_SOCKS5") != "" {
 		return nil, fmt.Errorf("kill-switch: upstream SOCKS5 required for UDP but not configured or failed")
@@ -119,6 +120,10 @@ func noteUDPBypassesUpstream() {
 		return
 	}
 	udpBypassNote.Do(func() {
-		utils.Infof("[EXIT] UDP is routed via upstream SOCKS5 UDP relay (UDP ASSOCIATE)")
+		if ExitUpstream() != "" {
+			utils.Infof("[EXIT] UDP is routed via upstream SOCKS5 UDP relay (UDP ASSOCIATE)")
+			return
+		}
+		utils.Infof("[EXIT] UDP is not sent through --upstream-proxy; it leaves this host directly")
 	})
 }
