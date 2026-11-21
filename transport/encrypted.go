@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/scrypt"
-
 	"github.com/p1neappleXpress/OpenFlux/utils"
 )
 
@@ -628,7 +626,7 @@ func (e *EncryptedTransport) CryptoStats() (sendOK, sendErr, recvOK, recvFail, r
 var _ = minInt
 
 // masterKeys remembers derived master keys by (secret, context). The scrypt
-// behind a master key takes 32 MiB and about a second of one core on a small
+// behind a master key takes 4 MiB (32 with scrypt.Key) and about a second of one core on a small
 // VPS, and every carrier of a session, every carrier added at the peer's
 // request and every reloaded transport has the same secret and context: only
 // the first one pays. The entry holds what the AEADs it feeds hold anyway.
@@ -660,7 +658,9 @@ func masterKey(secret, context string, salt []byte) ([]byte, error) {
 	masterKeys.mu.Unlock()
 	e.once.Do(func() {
 		scryptRuns.Add(1)
-		e.master, e.err = scrypt.Key([]byte(secret), salt, 32768, 8, 1, 32)
+		// The same bytes as scrypt.Key(secret, salt, 32768, 8, 1, 32), in 4 MiB
+		// instead of 32 (see lowMemScrypt): the iOS packet tunnel's 50 MB.
+		e.master, e.err = lowMemScrypt([]byte(secret), salt, 32768, 8, 1, 32, scryptStride)
 	})
 	if e.err != nil {
 		// Do not cache a failure.
