@@ -361,14 +361,16 @@ func (t *MailruDocsTransport) Start() error {
 }
 
 // mailruPreferredBatchBytes is the default coalescing batch size for the chat
-// carrier. The R7 server cuts an anonymous editor connection with 4004 after
-// ~12 chat messages regardless of their size, so a large batch fits far more
-// tunnel data into that fixed message budget before the reconnect. Measured
-// end-to-end (d14 exit <-> 212 client, cachefly 10 MB via socks5h): the 8 KB
-// default gave the old tens-of-KB/s; ~500 KB reaches ~860 KB/s per burst, while
-// 1 MB is slower and far more variable (a bigger loss unit per 4004 cut).
+// carrier, and so the largest chat message it writes. The R7 server cuts a
+// connection with 4004 after a budget of chat messages, so a batch should be as
+// large as the server still relays. Since 1 Nov 2026 that is no longer 500 KB:
+// measured live with a signed-in account (both ends on one document), messages
+// of 1-64 KB arrive in 0.2-0.8 s, while 128, 256 and 500 KB never reach the
+// other side and the sender's connection is cut with 4004 ("access deny"). The
+// old 500 KB batches therefore lost every bulk transfer (small requests still
+// went through). 48 KB (64 KB as base64) stays under the cut.
 // OPENFLUX_BATCH_BYTES overrides this (see transport.BatchSizeHinter).
-const mailruPreferredBatchBytes = 500_000
+const mailruPreferredBatchBytes = 48_000
 
 // PreferredBatchBytes implements transport.BatchSizeHinter.
 func (t *MailruDocsTransport) PreferredBatchBytes() int { return mailruPreferredBatchBytes }
@@ -442,9 +444,31 @@ const mailruRotateAuthWait = 8 * time.Second
 // (which stops a retransmit burst from blowing the bucket mid-rotation), this
 // took the exit's 4004 cuts under an 8x download from ~11 per run to 0. At
 // ~1-2 x 500 KB batches/s under the server throttle it rotates roughly every
-// 30-60 s. 0 disables count-based rotation (time only).
+// 30-60 s. Since 1 Nov 2026 the budget is far smaller, a fixed count per
+// connection: measured live (signed-in account, 16 KB messages, rotation off)
+// the server relayed messages 1-12 and cut the connection on the 13th, which
+// was lost — the same at one message per 0.33, 1 and 2 s. Rotation starts at 8
+// so the new connection is usually up before the cap below is reached.
+// 0 disables count-based rotation (time only).
 // OPENFLUX_MAILRU_ROTATE_MSGS overrides it.
-const defaultMailruRotateMsgs = 60
+const defaultMailruRotateMsgs = 8
+
+// defaultMailruConnMsgs caps the chat messages written on one connection: the
+// writer holds the next batch until a rotation swaps in a fresh connection,
+// rather than send the 13th message that the server drops along with the
+// connection (see defaultMailruRotateMsgs). 0 disables the cap.
+// OPENFLUX_MAILRU_CONN_MSGS overrides it.
+const defaultMailruConnMsgs = 11
+
+var mailruConnMsgs = func() int64 {
+	n := int64(defaultMailruConnMsgs)
+	if v := os.Getenv("OPENFLUX_MAILRU_CONN_MSGS"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed >= 0 {
+			n = parsed
+		}
+	}
+	return n
+}()
 
 var mailruRotateMsgs = func() int64 {
 	n := int64(defaultMailruRotateMsgs)
@@ -827,6 +851,19 @@ func (t *MailruDocsTransport) writerLoop() {
 			continue
 		}
 
+		// The server relays only so many chat messages per connection and cuts
+		// it on the next one, losing that message. Past the cap, hold the batch
+		// until a rotation has swapped in a fresh connection (starting one if
+		// none is under way, or again if the last one failed).
+		if mailruConnMsgs > 0 && session.sentCount.Load() >= mailruConnMsgs {
+			if t.rotating.CompareAndSwap(false, true) {
+				s := session
+				utils.SafeGo("mailru.rotate", func() { t.rotateCarrier(s) })
+			}
+			time.Sleep(15 * time.Millisecond)
+			continue
+		}
+
 		// Pace the chat-message rate to flatten retransmit bursts so they do
 		// not drain R7's 4004 message token bucket faster than a rotation can
 		// swap in a fresh connection (see mailruMsgInterval / mailruRotateMsgs).
@@ -857,7 +894,7 @@ func (t *MailruDocsTransport) writerLoop() {
 		// the server's per-connection message budget, before the server cuts it.
 		// Triggering here (rather than only on a timer) is what keeps a loaded
 		// connection — which burns the budget in seconds — from ever being cut.
-		if n := session.sentCount.Add(1); mailruRotateMsgs > 0 && n == mailruRotateMsgs {
+		if n := session.sentCount.Add(1); mailruRotateMsgs > 0 && n >= mailruRotateMsgs {
 			if t.rotating.CompareAndSwap(false, true) {
 				s := session
 				utils.SafeGo("mailru.rotate", func() { t.rotateCarrier(s) })
