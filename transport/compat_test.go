@@ -346,6 +346,12 @@ func TestKDFContextsRule(t *testing.T) {
 			{Type: "mailru", URL: "https://m", Priority: 10}, {Type: "vyandex", URL: "https://v", Priority: 100}}, "https://v"},
 		{"classic cups rooms as --url", "", "rooms", []ContextSource{{Type: "cupsonline", URL: "rooms"}}, ContextPlaceholder},
 		{"direct address", "", ContextPlaceholder, []ContextSource{{Type: "direct", URL: "1.2.3.4:9443"}}, ContextPlaceholder},
+		// The exit creates Avito rooms at start, as it does cups rooms: a client
+		// holding the room list and the exit that had none must agree.
+		{"avito rooms over a document", "", ContextPlaceholder, []ContextSource{
+			{Type: "avito", URL: "rooms", Priority: 70}, {Type: "mailru", URL: "https://m", Priority: 60}}, "https://m"},
+		{"avito rooms alone", "", ContextPlaceholder, []ContextSource{{Type: "avito", URL: "rooms", Priority: 70}}, ContextPlaceholder},
+		{"classic avito rooms as --url", "", "rooms", []ContextSource{{Type: "avito", URL: "rooms"}}, ContextPlaceholder},
 	}
 	for _, c := range cases {
 		got, alts := KDFContexts(c.explicit, c.url, c.specs)
