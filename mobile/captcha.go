@@ -8,7 +8,7 @@ import (
 
 	"github.com/p1neappleXpress/OpenFlux/transport"
 	"github.com/p1neappleXpress/OpenFlux/transport/manager"
-	"github.com/p1neappleXpress/OpenFlux/transport/script"
+	"github.com/p1neappleXpress/OpenFlux/transport/setuppage"
 )
 
 // Android side of the core's out-of-band captcha/login flow. Desktop and iOS
@@ -27,7 +27,7 @@ var captcha struct {
 	// own marks a page that is the script's own (html, or an address on its
 	// own loopback server) rather than a real site: the app shows it as it
 	// is, offers window.openfluxSubmit and collects no cookies. The core
-	// decides (script.IsOwnPage); the app must not guess from the URL.
+	// decides (setuppage.IsOwnPage); the app must not guess from the URL.
 	own bool
 	// name is the transport that asked, for the dialog's title.
 	name   string
@@ -85,7 +85,7 @@ func attachCaptcha(transportType, documentURL string, raw transport.Transport) {
 			captcha.mu.Lock()
 			captcha.url = url
 			captcha.html = html
-			captcha.own = script.IsOwnPage(url, html)
+			captcha.own = setuppage.IsOwnPage(url, html)
 			captcha.name = name
 			captcha.reason = reason
 			captcha.mu.Unlock()
@@ -120,7 +120,7 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 		appendLog(fmt.Sprintf("[ANDROID] %s: нужна проверка в браузере (%s)", name, reason))
 		captcha.mu.Lock()
 		captcha.url, captcha.html, captcha.reason, captcha.key = url, html, reason, keys[name]
-		captcha.own = script.IsOwnPage(url, html)
+		captcha.own = setuppage.IsOwnPage(url, html)
 		captcha.name = name
 		captcha.proxy, captcha.remoteName = "", ""
 		captcha.apply = func(jar map[string]string) error { return m.ApplyCookiesFor(name, jar) }
@@ -133,7 +133,7 @@ func attachSessionCaptcha(m *manager.Manager, keys map[string]string, proxy *aut
 	// passed from the exit's address, so the page goes through the tunnel,
 	// and the cookies go back to the exit, which applies and keeps them.
 	m.SetRemoteAuthNotifier(func(name, url, html, reason string) {
-		if !script.AcceptRemoteCheck(url, html) {
+		if !setuppage.AcceptRemoteCheck(url, html) {
 			appendLog(fmt.Sprintf("[ANDROID] Нода: %s прислала адрес не https, игнорирую", name))
 			return
 		}
@@ -255,14 +255,14 @@ func SubmitCaptchaCookies(cookieHeader string) string {
 }
 
 // SubmitCaptchaData takes the JSON a script transport's own setup page
-// passed to window.openfluxSubmit (script.FlattenSubmission says how it is
+// passed to window.openfluxSubmit (setuppage.FlattenSubmission says how it is
 // read: flat or {client: {...}}, values as strings) and delivers it the same
 // way SubmitCaptchaCookies delivers real cookies: the script reads it back
 // via cookieJar.get() in its onEvent("cookiesApplied") handler (see
 // js/template.js) - ApplyCookies does not care whether the values are
 // browser cookies or a script's own config.
 func SubmitCaptchaData(json_ string) string {
-	jar, err := script.FlattenSubmission([]byte(json_))
+	jar, err := setuppage.FlattenSubmission([]byte(json_))
 	if err != nil {
 		return "Страница настройки: " + err.Error()
 	}
