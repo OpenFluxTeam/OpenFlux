@@ -1,3 +1,5 @@
+//go:build !ios
+
 package mobile
 
 // Script-transport (JS/goja) engine surface for the apps. This file is what
